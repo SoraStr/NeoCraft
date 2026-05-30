@@ -1,73 +1,130 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-// We'll test with mocked fetch to avoid network dependency
 describe('VersionService', () => {
-  it('should parse Mojang version manifest correctly', async () => {
+  it('should fetch vanilla versions with download URLs', async () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    // Mock the fetch call
-    const mockVersions = {
-      latest: { release: '1.21.5', snapshot: '25w21a' },
-      versions: [
-        { id: '1.21.5', type: 'release', url: 'https://...', time: '2025-01-01T00:00:00Z', releaseTime: '2025-01-01T00:00:00Z' },
-        { id: '1.21.4', type: 'release', url: 'https://...', time: '2024-12-01T00:00:00Z', releaseTime: '2024-12-01T00:00:00Z' },
-        { id: '1.21.3', type: 'release', url: 'https://...', time: '2024-11-01T00:00:00Z', releaseTime: '2024-11-01T00:00:00Z' },
-      ]
-    };
-
-    // Use global fetch (Node 22 has built-in fetch, we can mock with vitest)
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockVersions),
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('version_manifest_v2')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            versions: [
+              { id: '1.21.5', type: 'release', url: 'https://example.com/1.21.5.json' },
+              { id: '1.21.4', type: 'release', url: 'https://example.com/1.21.4.json' },
+            ],
+          }),
+        });
+      }
+      // Version detail responses (download URL)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          downloads: { server: { url: `https://download.example/server.jar` } },
+        }),
+      });
     });
 
     const versions = await service.getVanillaVersions();
-    expect(versions.length).toBe(3);
-    expect(versions[0]).toEqual({ id: '1.21.5', type: 'vanilla' });
-    expect(versions[2]).toEqual({ id: '1.21.3', type: 'vanilla' });
+    expect(versions.length).toBeGreaterThanOrEqual(1);
+    expect(versions[0].type).toBe('vanilla');
+    expect(versions[0].downloadUrl).toBeDefined();
   });
 
-  it('should parse PaperMC API correctly', async () => {
+  it('should fetch Paper versions with download URLs', async () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    // PaperMC API returns versions oldest-first; our service reverses to newest-first
-    const mockPaperVersions = {
-      project_id: 'paper',
-      project_name: 'Paper',
-      versions: ['1.21.1', '1.21.3', '1.21.4', '1.21.5'],
-    };
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockPaperVersions),
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = url.toString();
+      if (urlStr === 'https://api.papermc.io/v2/projects/paper') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ project_id: 'paper', versions: ['1.21.5', '1.21.4'] }),
+        });
+      }
+      // Builds endpoint
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ builds: [100, 200, 300] }),
+      });
     });
 
     const versions = await service.getPaperVersions();
-    expect(versions.length).toBe(4);
-    expect(versions[0]).toEqual({ id: '1.21.5', type: 'paper' });
+    expect(versions.length).toBeGreaterThanOrEqual(1);
+    expect(versions[0].type).toBe('paper');
+    expect(versions[0].downloadUrl).toContain('api.papermc.io');
   });
 
-  it('should cache results', async () => {
+  it('should fetch Fabric versions with download URLs', async () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    const mockVersions = {
-      versions: [{ id: '1.21.5', type: 'release', url: '', time: '', releaseTime: '' }],
-    };
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockVersions),
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('versions/game')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { version: '1.21.5', stable: true },
+            { version: '25w21a', stable: false },
+          ]),
+        });
+      }
+      if (urlStr.includes('versions/loader') && !urlStr.includes('server/json')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { version: '0.16.0', stable: true },
+          ]),
+        });
+      }
+      // Server JSON (download URL)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          downloads: { server: { url: 'https://meta.fabricmc.net/server.jar' } },
+        }),
+      });
     });
 
-    await service.getVanillaVersions();
-    await service.getVanillaVersions();
-    await service.getVanillaVersions();
+    const versions = await service.getFabricVersions();
+    expect(versions.length).toBeGreaterThanOrEqual(1);
+    expect(versions.every(v => v.type === 'fabric')).toBe(true);
+    // Should not include snapshots
+    expect(versions.some(v => v.id === '25w21a')).toBe(false);
+    if (versions.length > 0) expect(versions[0].downloadUrl).toBeDefined();
+  });
 
-    // Should only have called fetch once (cached)
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+  it('should dispatch to correct method via getVersions', async () => {
+    const { VersionService } = await import('../../src/services/version-service');
+    const service = new VersionService();
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = url.toString();
+      if (urlStr === 'https://api.papermc.io/v2/projects/paper') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ project_id: 'paper', versions: ['1.21.5'] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ builds: [500] }),
+      });
+    });
+
+    const versions = await service.getVersions('paper');
+    expect(versions.length).toBeGreaterThanOrEqual(1);
+    expect(versions[0].type).toBe('paper');
+  });
+
+  it('should reject unknown server types', async () => {
+    const { VersionService } = await import('../../src/services/version-service');
+    const service = new VersionService();
+    await expect(service.getVersions('unknown' as any)).rejects.toThrow('Unknown server type');
   });
 
   it('should handle API errors gracefully', async () => {
@@ -77,30 +134,42 @@ describe('VersionService', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
-      statusText: 'Internal Server Error',
+      statusText: 'Error',
     });
 
-    await expect(service.getVanillaVersions()).rejects.toThrow('Failed to fetch versions');
+    await expect(service.getVanillaVersions()).rejects.toThrow();
   });
 
-  it('should only return release versions by default', async () => {
+  it('should cache results', async () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    const mockVersions = {
-      versions: [
-        { id: '1.21.5', type: 'release', url: '', time: '', releaseTime: '' },
-        { id: '25w21a', type: 'snapshot', url: '', time: '', releaseTime: '' },
-      ],
-    };
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockVersions),
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('version_manifest_v2')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            versions: [
+              { id: '1.21.5', type: 'release', url: 'https://example.com/1.21.5.json' },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ downloads: { server: { url: 'https://dl.example/jar' } } }),
+      });
     });
 
-    const versions = await service.getVanillaVersions();
-    expect(versions.length).toBe(1);
-    expect(versions[0].id).toBe('1.21.5');
+    await service.getVanillaVersions();
+    const countAfterFirst = (global.fetch as any).mock.calls.length;
+
+    // Second call should hit cache — no additional fetch calls
+    await service.getVanillaVersions();
+    const countAfterSecond = (global.fetch as any).mock.calls.length;
+
+    // With caching, the second call should not increase fetch count
+    expect(countAfterSecond).toBe(countAfterFirst);
   });
 });

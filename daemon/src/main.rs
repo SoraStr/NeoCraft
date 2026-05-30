@@ -48,9 +48,10 @@ impl RequestHandler for DaemonHandler {
                 let name = request.params["name"].as_str().unwrap_or("My Server").to_string();
                 let version = request.params["version"].as_str().unwrap_or("1.21.5").to_string();
                 let port = request.params["port"].as_u64().unwrap_or(25565) as u16;
+                let download_url = request.params["download_url"].as_str().unwrap_or("").to_string();
                 let st: ServerType = serde_json::from_value(request.params["type"].clone())
                     .unwrap_or(ServerType::Paper);
-                match manager.create(name, st, version, port).await {
+                match manager.create(name, st, version, port, download_url).await {
                     Ok(instance) => {
                         let result = serde_json::to_value(&instance).unwrap_or_default();
                         Response { id, result: Some(result), error: None }

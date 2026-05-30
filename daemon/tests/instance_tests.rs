@@ -62,6 +62,7 @@ async fn test_create_instance_creates_directory_structure() {
         ServerType::Paper,
         "1.21.5".into(),
         25565,
+        "".into(),
     ).await.unwrap();
 
     // Check instance fields
@@ -92,8 +93,8 @@ async fn test_create_instance_assigns_unique_ports() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let i1 = manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
-    let i2 = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25566).await.unwrap();
+    let i1 = manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+    let i2 = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into()).await.unwrap();
 
     assert_ne!(i1.port, i2.port, "ports should be different");
 }
@@ -103,8 +104,8 @@ async fn test_create_instance_duplicate_port_rejected() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
-    let result = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25565).await;
+    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+    let result = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await;
 
     assert!(result.is_err(), "duplicate port should be rejected");
 }
@@ -114,8 +115,8 @@ async fn test_list_instances() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
-    manager.create("S2".into(), ServerType::Vanilla, "1.21.0".into(), 25566).await.unwrap();
+    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+    manager.create("S2".into(), ServerType::Vanilla, "1.21.0".into(), 25566, "".into()).await.unwrap();
 
     let list = manager.list();
     assert_eq!(list.len(), 2);
@@ -126,7 +127,7 @@ async fn test_get_instance_by_id() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let created = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
+    let created = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let found = manager.get(&created.id).unwrap();
     assert_eq!(found.name, "Test");
 }
@@ -143,7 +144,7 @@ async fn test_delete_instance_removes_directory() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let created = manager.create("ToDelete".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
+    let created = manager.create("ToDelete".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&created.id);
     assert!(work_dir.exists());
 
@@ -158,7 +159,7 @@ async fn test_delete_running_instance_rejected() {
     // This test validates future behavior
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let created = manager.create("Running".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
+    let created = manager.create("Running".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     // Can't test rejection of running instance yet — manually set state to Running
     // This documents the expected behavior
     assert!(manager.get(&created.id).is_some());
@@ -169,7 +170,7 @@ async fn test_delete_running_instance_rejected() {
 async fn test_eula_accepted_by_default() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565).await.unwrap();
+    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let eula = std::fs::read_to_string(work_dir.join("eula.txt")).unwrap();
     assert!(eula.contains("eula=true"), "eula should be accepted by default");
@@ -179,7 +180,7 @@ async fn test_eula_accepted_by_default() {
 async fn test_server_properties_template_has_required_keys() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25566).await.unwrap();
+    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let props = std::fs::read_to_string(work_dir.join("server.properties")).unwrap();
     assert!(props.contains("server-port=25566"));
@@ -192,7 +193,7 @@ async fn test_start_mock_server_process() {
     let (dir, event_tx, mut event_rx) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx.clone());
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let mock_java = create_mock_java_script(dir.path());
@@ -230,7 +231,7 @@ async fn test_stop_mock_server_via_stdin() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let mock_java = create_mock_java_script(dir.path());
@@ -252,7 +253,7 @@ async fn test_crash_detection() {
     let (dir, event_tx, mut event_rx) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let crash_script = create_crash_script(dir.path());
@@ -284,7 +285,7 @@ async fn test_restart_stops_then_starts() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let mock_java = create_mock_java_script(dir.path());
@@ -309,7 +310,7 @@ async fn test_start_already_running_rejected() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let mock_java = create_mock_java_script(dir.path());
@@ -331,7 +332,7 @@ async fn test_stop_not_running_is_noop() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
     let result = manager.stop(&instance.id).await;

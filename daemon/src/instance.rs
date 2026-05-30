@@ -33,6 +33,7 @@ pub struct Instance {
     pub state: InstanceState,
     pub java_args: String,
     pub created_at: String, // ISO 8601
+    pub download_url: String,
 }
 
 /// Manages the lifecycle of Minecraft server instances.
@@ -70,6 +71,7 @@ impl InstanceManager {
         server_type: ServerType,
         version: String,
         port: u16,
+        download_url: String,
     ) -> Result<Instance, InstanceError> {
         // Reject duplicate ports
         for inst in self.instances.values() {
@@ -106,6 +108,7 @@ impl InstanceManager {
             state: InstanceState::Stopped,
             java_args: "-Xmx2G -Xms1G".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
+            download_url,
         };
 
         // Persist instance state to disk

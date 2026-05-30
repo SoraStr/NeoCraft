@@ -16,6 +16,7 @@ export interface Instance {
 export interface ServerVersion {
   id: string;
   type: ServerType;
+  downloadUrl?: string;
 }
 
 export interface LogEntry {
@@ -36,6 +37,7 @@ export interface CreateInstanceInput {
   type: ServerType;
   version: string;
   port?: number;
+  downloadUrl?: string;
 }
 
 export interface IpcEvent {

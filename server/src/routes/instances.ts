@@ -36,8 +36,8 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   // Create instance
   app.post('/api/instances', async (request, reply) => {
     try {
-      const body = request.body as { name?: string; type?: string; version?: string; port?: number };
-      const { name, type, version, port } = body;
+      const body = request.body as { name?: string; type?: string; version?: string; port?: number; downloadUrl?: string };
+      const { name, type, version, port, downloadUrl } = body;
 
       if (!name || !type || !version) {
         return reply.status(400).send({ error: 'Missing required fields: name, type, version' });
@@ -46,7 +46,7 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
         return reply.status(400).send({ error: `Invalid server type: ${type}. Must be one of: ${VALID_TYPES.join(', ')}` });
       }
 
-      const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565 });
+      const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565, download_url: downloadUrl || '' });
       return reply.status(201).send(response.result);
     } catch (err: any) {
       if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });

@@ -13,7 +13,7 @@ interface InstanceStore {
 
   // Actions
   fetchInstances: () => Promise<void>;
-  createInstance: (name: string, type: string, version: string, port?: number) => Promise<Instance>;
+  createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
   startInstance: (id: string) => Promise<void>;
   stopInstance: (id: string) => Promise<void>;
@@ -42,8 +42,8 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
     }
   },
 
-  createInstance: async (name, type, version, port) => {
-    const instance = await api.createInstance({ name, type: type as any, version, port });
+  createInstance: async (name, type, version, port, downloadUrl) => {
+    const instance = await api.createInstance({ name, type: type as any, version, port, downloadUrl });
     set((state) => ({ instances: [...state.instances, instance] }));
     return instance;
   },

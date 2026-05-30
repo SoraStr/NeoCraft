@@ -166,7 +166,7 @@ async fn test_full_ipc_lifecycle() {
 
     // Create an instance
     let instance = manager
-        .create("IPC Test".into(), ServerType::Paper, "1.21.5".into(), 25570)
+        .create("IPC Test".into(), ServerType::Paper, "1.21.5".into(), 25570, "".into())
         .await
         .unwrap();
     let instance_id = instance.id.clone();
