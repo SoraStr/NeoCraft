@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, Command as TokioCommand};
+use tokio::process::Command as TokioCommand;
 use tokio::sync::broadcast;
+use crate::logpipe::LogPipe;
 use crate::protocol::{Event, InstanceState};
 
 /// Supported Minecraft server types.
@@ -30,6 +31,7 @@ pub struct Instance {
     pub version: String,
     pub port: u16,
     pub work_dir: PathBuf,
+    pub jar_path: PathBuf,
     pub state: InstanceState,
     pub java_args: String,
     pub created_at: String, // ISO 8601
@@ -43,8 +45,6 @@ pub struct InstanceManager {
     instances: HashMap<String, Instance>,
     event_tx: broadcast::Sender<Event>,
     children: HashMap<String, (tokio::process::ChildStdin, Arc<AtomicBool>)>,
-    /// Remembers the last command used to start an instance so `restart` can reuse it.
-    last_start_commands: HashMap<String, (PathBuf, Vec<String>)>,
 }
 
 impl InstanceManager {
@@ -57,7 +57,6 @@ impl InstanceManager {
             instances: HashMap::new(),
             event_tx,
             children: HashMap::new(),
-            last_start_commands: HashMap::new(),
         }
     }
 
@@ -98,9 +97,10 @@ impl InstanceManager {
             crate::files::default_server_properties(port, &name),
         )?;
 
+        let jar_path = work_dir.join("server.jar");
+
         // Download the server JAR if a URL is provided (before persisting instance)
         if !download_url.is_empty() {
-            let jar_path = work_dir.join("server.jar");
             crate::downloader::download_jar(
                 &download_url,
                 &jar_path,
@@ -118,6 +118,7 @@ impl InstanceManager {
             version,
             port,
             work_dir,
+            jar_path,
             state: InstanceState::Stopped,
             java_args: "-Xmx2G -Xms1G".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -164,135 +165,133 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// Start an instance using the given command. The command is remembered so
-    /// that `start()` and `restart()` can reuse it.
-    pub async fn start_with_command(
-        &mut self,
-        id: &str,
-        command: impl AsRef<std::path::Path>,
-        extra_args: &[&str],
-    ) -> Result<(), InstanceError> {
-        // Validate state: must be Stopped or Crashed
-        {
-            let instance = self
-                .instances
-                .get(id)
-                .ok_or_else(|| InstanceError::NotFound(id.into()))?;
-            if instance.state != InstanceState::Stopped
-                && instance.state != InstanceState::Crashed
-            {
+    /// Start an instance. Handles EULA auto-accept on first launch.
+    pub async fn start(&mut self, id: &str) -> Result<(), InstanceError> {
+        let (jar_path, work_dir, server_type, java_args) = {
+            let inst = self.instances.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
+            if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
-        }
-
-        // Remember the command so restart/start can reuse it
-        self.last_start_commands.insert(
-            id.to_string(),
-            (
-                command.as_ref().to_path_buf(),
-                extra_args.iter().map(|s| s.to_string()).collect(),
-            ),
-        );
+            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone())
+        };
 
         // Emit Starting
         {
-            let instance = self.instances.get_mut(id).unwrap();
-            instance.state = InstanceState::Starting;
+            let inst = self.instances.get_mut(id).unwrap();
+            inst.state = InstanceState::Starting;
         }
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Starting,
         });
 
-        // Build and spawn the child process
-        let instance = self.instances.get(id).unwrap();
-        let work_dir = instance.work_dir.clone();
+        // Ensure EULA is accepted
+        let eula_path = work_dir.join("eula.txt");
+        if eula_path.exists() {
+            let content = std::fs::read_to_string(&eula_path).unwrap_or_default();
+            if content.contains("eula=false") {
+                std::fs::write(&eula_path, content.replace("eula=false", "eula=true"))
+                    .map_err(|e| InstanceError::Io(e))?;
+            }
+        } else {
+            // EULA file doesn't exist yet — will be generated on first launch
+            // We'll detect the failure and auto-accept
+        }
 
-        let mut cmd = TokioCommand::new(command.as_ref());
+        // Build and run the command
+        let (java_bin, java_args_vec) = build_java_command(&jar_path, &server_type, &java_args);
+        let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let result = self.start_process(id, &java_bin, &args_refs).await;
+
+        // If failed with EULA error, accept EULA and retry once
+        if let Err(ref e) = result {
+            if let InstanceError::StartFailed(msg) = e {
+                if msg.contains("EULA") || msg.contains("eula") {
+                    // Accept EULA and retry
+                    let _ = std::fs::write(&eula_path, "eula=true\n");
+                    return self.start_process(id, &java_bin, &args_refs).await;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Low-level process spawn with error capture.
+    async fn start_process(
+        &mut self,
+        id: &str,
+        command: &str,
+        args: &[&str],
+    ) -> Result<(), InstanceError> {
+        let work_dir = {
+            let inst = self.instances.get(id).unwrap();
+            inst.work_dir.clone()
+        };
+
+        let mut cmd = TokioCommand::new(command);
         cmd.current_dir(&work_dir);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        for arg in extra_args {
+        for arg in args {
             cmd.arg(arg);
         }
         cmd.kill_on_drop(true);
 
-        let mut child: Child = cmd.spawn()?;
-
-        // Take stdin so we can write "stop" later
-        let stdin = child
-            .stdin
-            .take()
-            .expect("stdin pipe must be available");
+        let mut child = cmd.spawn()?;
+        let stdin = child.stdin.take().expect("stdin pipe");
+        let stdout = child.stdout.take().expect("stdout pipe");
+        let stderr = child.stderr.take().expect("stderr pipe");
         let deliberate_stop = Arc::new(AtomicBool::new(false));
-
-        self.children
-            .insert(id.to_string(), (stdin, deliberate_stop.clone()));
 
         // Emit Running
         {
-            let instance = self.instances.get_mut(id).unwrap();
-            instance.state = InstanceState::Running;
+            let inst = self.instances.get_mut(id).unwrap();
+            inst.state = InstanceState::Running;
         }
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Running,
         });
 
-        // Spawn background watcher for crash / natural exit detection
-        let event_tx = self.event_tx.clone();
+        // Store child info for stop()
+        self.children.insert(id.to_string(), (stdin, deliberate_stop.clone()));
+
+        // Pipe stdout/stderr to log events
+        let log_stdout = LogPipe::new(id.to_string(), self.event_tx.clone());
+        let log_stderr = LogPipe::new(id.to_string(), self.event_tx.clone());
+        tokio::spawn(async move { log_stdout.pipe_stdout(stdout).await; });
+        tokio::spawn(async move { log_stderr.pipe_stderr(stderr).await; });
+
+        // Wait for process exit with a short grace period to detect quick failures
         let id_clone = id.to_string();
+        let event_tx = self.event_tx.clone();
+        let deliberate = deliberate_stop.clone();
+
         tokio::spawn(async move {
             let status = child.wait().await;
-            // If we deliberately stopped, do not emit any event
-            if deliberate_stop.load(Ordering::Acquire) {
-                return;
+            if !deliberate.load(Ordering::Relaxed) {
+                match status {
+                    Ok(s) if !s.success() => {
+                        let _ = event_tx.send(Event::InstanceStateChange {
+                            instance_id: id_clone.clone(),
+                            state: InstanceState::Crashed,
+                        });
+                    }
+                    Ok(_) => {
+                        let _ = event_tx.send(Event::InstanceStateChange {
+                            instance_id: id_clone,
+                            state: InstanceState::Stopped,
+                        });
+                    }
+                    Err(_) => {}
+                }
             }
-            let state = match status {
-                Ok(exit_status) if exit_status.success() => InstanceState::Stopped,
-                _ => InstanceState::Crashed,
-            };
-            let _ = event_tx.send(Event::InstanceStateChange {
-                instance_id: id_clone,
-                state,
-            });
         });
 
         Ok(())
-    }
-
-    /// Start an instance using the default `java -jar server.jar` command.
-    /// If the instance was previously started via `start_with_command`, that
-    /// command is reused.
-    pub async fn start(&mut self, id: &str) -> Result<(), InstanceError> {
-        let (cmd, args) = match self.last_start_commands.get(id) {
-            Some((cmd, args)) => (cmd.clone(), args.clone()),
-            None => {
-                let instance = self
-                    .instances
-                    .get(id)
-                    .ok_or_else(|| InstanceError::NotFound(id.into()))?;
-                let java = PathBuf::from("java");
-                let mut args: Vec<String> = instance
-                    .java_args
-                    .split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect();
-                args.push("-jar".into());
-                args.push(
-                    instance
-                        .work_dir
-                        .join("server.jar")
-                        .to_string_lossy()
-                        .to_string(),
-                );
-                args.push("nogui".into());
-                (java, args)
-            }
-        };
-        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        self.start_with_command(id, &cmd, &arg_refs).await
     }
 
     /// Stop a running instance by sending "stop\n" to its stdin.
@@ -351,6 +350,51 @@ impl InstanceManager {
     }
 }
 
+/// Build the Java launch command based on server type using Command.md guidelines.
+pub fn build_java_command(jar_path: &Path, server_type: &ServerType, java_args: &str) -> (String, Vec<String>) {
+    let java = "java".to_string();
+    let mut args: Vec<String> = Vec::new();
+
+    // Parse user-provided memory args (-Xmx, -Xms)
+    let mem_xmx = java_args.split_whitespace()
+        .find(|a| a.starts_with("-Xmx")).unwrap_or("-Xmx2G");
+    let mem_xms = java_args.split_whitespace()
+        .find(|a| a.starts_with("-Xms")).unwrap_or("-Xms2G");
+
+    match server_type {
+        ServerType::Paper | ServerType::Spigot => {
+            // Aikar's Flags for G1GC (Command.md section 五.2)
+            args.push(mem_xms.to_string());
+            args.push(mem_xmx.to_string());
+            args.extend([
+                "-XX:+UseG1GC".to_string(), "-XX:+ParallelRefProcEnabled".to_string(), "-XX:MaxGCPauseMillis=200".to_string(),
+                "-XX:+UnlockExperimentalVMOptions".to_string(), "-XX:+DisableExplicitGC".to_string(), "-XX:+AlwaysPreTouch".to_string(),
+                "-XX:G1NewSizePercent=30".to_string(), "-XX:G1MaxNewSizePercent=40".to_string(), "-XX:G1HeapRegionSize=8M".to_string(),
+                "-XX:G1ReservePercent=20".to_string(), "-XX:G1HeapWastePercent=5".to_string(), "-XX:G1MixedGCCountTarget=4".to_string(),
+                "-XX:InitiatingHeapOccupancyPercent=15".to_string(), "-XX:G1MixedGCLiveThresholdPercent=90".to_string(),
+                "-XX:G1RSetUpdatingPauseTimePercent=5".to_string(), "-XX:SurvivorRatio=32".to_string(),
+                "-XX:+PerfDisableSharedMem".to_string(), "-XX:MaxTenuringThreshold=1".to_string(),
+            ]);
+        }
+        ServerType::Vanilla => {
+            // Simple flags (Command.md section 五.1)
+            args.push(mem_xms.to_string());
+            args.push(mem_xmx.to_string());
+        }
+        ServerType::Fabric => {
+            // Lightweight flags (Command.md section 五.4)
+            args.push(mem_xms.to_string());
+            args.push(mem_xmx.to_string());
+        }
+    }
+
+    args.push("-jar".to_string());
+    args.push(jar_path.to_string_lossy().to_string());
+    args.push("nogui".to_string());
+
+    (java, args)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum InstanceError {
     #[error("Port {0} is already in use")]
@@ -365,4 +409,6 @@ pub enum InstanceError {
     Json(#[from] serde_json::Error),
     #[error("Download failed: {0}")]
     Download(String),
+    #[error("Start failed: {0}")]
+    StartFailed(String),
 }

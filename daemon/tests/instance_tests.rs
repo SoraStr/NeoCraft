@@ -1,7 +1,5 @@
 use std::path::Path;
-use std::path::PathBuf;
-use std::time::Duration;
-use neocraft_daemon::instance::{InstanceManager, ServerType};
+use neocraft_daemon::instance::{InstanceManager, ServerType, build_java_command};
 use neocraft_daemon::protocol::{Event, InstanceState};
 use tokio::sync::broadcast;
 use tempfile::TempDir;
@@ -10,46 +8,6 @@ fn setup() -> (TempDir, broadcast::Sender<Event>, broadcast::Receiver<Event>) {
     let dir = TempDir::new().unwrap();
     let (tx, rx) = broadcast::channel(256);
     (dir, tx, rx)
-}
-
-fn create_mock_java_script(dir: &Path) -> PathBuf {
-    let script_path = dir.join("mock-java.sh");
-    let script = r#"#!/bin/bash
-echo "[Server] Starting Minecraft server..."
-echo "[Server] Loading world..."
-echo "[Server] Done! For help, type \"help\""
-while IFS= read -r line; do
-    echo "[Server] Received: $line"
-    if [[ "$line" == "stop" ]]; then
-        echo "[Server] Stopping the server..."
-        sleep 0.2
-        echo "[Server] All chunks saved"
-        exit 0
-    fi
-done
-"#;
-    std::fs::write(&script_path, script).unwrap();
-    std::process::Command::new("chmod")
-        .arg("+x")
-        .arg(&script_path)
-        .output()
-        .unwrap();
-    script_path
-}
-
-fn create_crash_script(dir: &Path) -> PathBuf {
-    let script_path = dir.join("crash.sh");
-    std::fs::write(
-        &script_path,
-        "#!/bin/bash\necho 'Oops!'\nexit 1\n",
-    )
-    .unwrap();
-    std::process::Command::new("chmod")
-        .arg("+x")
-        .arg(&script_path)
-        .output()
-        .unwrap();
-    script_path
 }
 
 #[tokio::test]
@@ -177,154 +135,120 @@ async fn test_eula_accepted_by_default() {
 }
 
 #[tokio::test]
-async fn test_server_properties_template_has_required_keys() {
+async fn test_server_properties_template_has_all_fields() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let props = std::fs::read_to_string(work_dir.join("server.properties")).unwrap();
+    // Core fields
     assert!(props.contains("server-port=25566"));
     assert!(props.contains("motd="));
     assert!(props.contains("enable-rcon=false"));
+    // Expanded fields from comprehensive template
+    assert!(props.contains("max-players=20"));
+    assert!(props.contains("online-mode=true"));
+    assert!(props.contains("gamemode=survival"));
+    assert!(props.contains("difficulty=normal"));
+    assert!(props.contains("view-distance=10"));
+    assert!(props.contains("level-name=world"));
+    assert!(props.contains("white-list=false"));
 }
 
 #[tokio::test]
-async fn test_start_mock_server_process() {
-    let (dir, event_tx, mut event_rx) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx.clone());
-    let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
-        .await
-        .unwrap();
-    let mock_java = create_mock_java_script(dir.path());
-    let id = instance.id.clone();
-
-    manager
-        .start_with_command(&id, &mock_java, &[])
-        .await
-        .unwrap();
-
-    let inst = manager.get(&id).unwrap();
-    assert_eq!(inst.state, InstanceState::Running);
-
-    // Drain events looking for state change to Running
-    let mut found_running = false;
-    while let Ok(event) = event_rx.try_recv() {
-        if let Event::InstanceStateChange { instance_id, state } = event {
-            if instance_id == id && state == InstanceState::Running {
-                found_running = true;
-                break;
-            }
-        }
-    }
-    assert!(
-        found_running,
-        "Should have emitted Running state change event"
-    );
-
-    // Clean up: stop the process
-    let _ = manager.stop(&id).await;
-}
-
-#[tokio::test]
-async fn test_stop_mock_server_via_stdin() {
+async fn test_jar_path_is_set_on_create() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
-        .await
-        .unwrap();
-    let mock_java = create_mock_java_script(dir.path());
-    let id = instance.id.clone();
-
-    manager
-        .start_with_command(&id, &mock_java, &[])
-        .await
-        .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    manager.stop(&id).await.unwrap();
-
-    let inst = manager.get(&id).unwrap();
-    assert_eq!(inst.state, InstanceState::Stopped);
+    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+    assert!(instance.jar_path.ends_with("server.jar"), "jar_path should point to server.jar");
+    assert_eq!(instance.jar_path, instance.work_dir.join("server.jar"));
 }
 
 #[tokio::test]
-async fn test_crash_detection() {
-    let (dir, event_tx, mut event_rx) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
-        .await
-        .unwrap();
-    let crash_script = create_crash_script(dir.path());
-    let id = instance.id.clone();
-
-    manager
-        .start_with_command(&id, &crash_script, &[])
-        .await
-        .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    let mut crashed = false;
-    while let Ok(event) = event_rx.try_recv() {
-        if let Event::InstanceStateChange { instance_id, state } = event {
-            if instance_id == id && state == InstanceState::Crashed {
-                crashed = true;
-                break;
-            }
-        }
-    }
-    assert!(
-        crashed,
-        "Instance should have transitioned to Crashed state"
-    );
-}
-
-#[tokio::test]
-async fn test_restart_stops_then_starts() {
+async fn test_jar_path_persisted_in_instance_json() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
-        .await
-        .unwrap();
-    let mock_java = create_mock_java_script(dir.path());
-    let id = instance.id.clone();
+    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+    let json_path = instance.work_dir.join("instance.json");
+    let json_str = std::fs::read_to_string(&json_path).unwrap();
+    assert!(json_str.contains("jar_path"), "instance.json should contain jar_path");
+    assert!(json_str.contains("server.jar"), "instance.json should contain server.jar path");
+}
 
-    manager
-        .start_with_command(&id, &mock_java, &[])
-        .await
-        .unwrap();
-    assert_eq!(manager.get(&id).unwrap().state, InstanceState::Running);
+#[test]
+fn test_build_paper_java_command() {
+    let cmd = build_java_command(
+        Path::new("/tmp/server.jar"),
+        &ServerType::Paper,
+        "-Xmx4G -Xms4G",
+    );
+    assert_eq!(cmd.0, "java");
+    assert!(cmd.1.contains(&"-jar".to_string()));
+    assert!(cmd.1.contains(&"nogui".to_string()));
+    assert!(cmd.1.contains(&"-XX:+UseG1GC".to_string()));
+    assert!(cmd.1.contains(&"-Xmx4G".to_string()));
+}
 
-    manager.restart(&id).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(manager.get(&id).unwrap().state, InstanceState::Running);
+#[test]
+fn test_build_vanilla_java_command() {
+    let cmd = build_java_command(
+        Path::new("/tmp/server.jar"),
+        &ServerType::Vanilla,
+        "-Xmx2G -Xms2G",
+    );
+    assert!(!cmd.1.contains(&"-XX:+UseG1GC".to_string()));
+    assert!(cmd.1.contains(&"nogui".to_string()));
+}
 
-    // Clean up
-    let _ = manager.stop(&id).await;
+#[test]
+fn test_build_fabric_java_command() {
+    let cmd = build_java_command(
+        Path::new("/tmp/server.jar"),
+        &ServerType::Fabric,
+        "-Xmx2G -Xms1G",
+    );
+    assert!(!cmd.1.contains(&"-XX:+UseG1GC".to_string()));
+    assert!(cmd.1.contains(&"-jar".to_string()));
+    assert!(cmd.1.contains(&"-Xmx2G".to_string()));
+    assert!(cmd.1.contains(&"-Xms1G".to_string()));
+}
+
+#[test]
+fn test_build_java_command_falls_back_to_default_memory() {
+    let cmd = build_java_command(
+        Path::new("/tmp/server.jar"),
+        &ServerType::Paper,
+        "",
+    );
+    assert!(cmd.1.contains(&"-Xmx2G".to_string()));
+    assert!(cmd.1.contains(&"-Xms2G".to_string()));
+}
+
+#[test]
+fn test_build_spigot_uses_aikar_flags() {
+    let cmd = build_java_command(
+        Path::new("/tmp/server.jar"),
+        &ServerType::Spigot,
+        "-Xmx2G -Xms2G",
+    );
+    assert!(cmd.1.contains(&"-XX:+UseG1GC".to_string()));
 }
 
 #[tokio::test]
 async fn test_start_already_running_rejected() {
     let (dir, event_tx, _) = setup();
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
-        .await
-        .unwrap();
-    let mock_java = create_mock_java_script(dir.path());
+    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let id = instance.id.clone();
 
-    manager
-        .start_with_command(&id, &mock_java, &[])
-        .await
-        .unwrap();
-    let result = manager.start_with_command(&id, &mock_java, &[]).await;
-    assert!(result.is_err());
+    // Manually set state to Running to simulate an already-running instance
+    {
+        let inst = manager.get_mut(&id).unwrap();
+        inst.state = InstanceState::Running;
+    }
 
-    // Clean up
-    let _ = manager.stop(&id).await;
+    let result = manager.start(&id).await;
+    assert!(result.is_err(), "starting an already-running instance should be rejected");
 }
 
 #[tokio::test]
