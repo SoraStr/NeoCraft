@@ -5,6 +5,8 @@ import { IpcClient } from './services/ipc-client';
 import { WebSocketHub } from './websocket/hub';
 import { instanceRoutes } from './routes/instances';
 import { configRoutes } from './routes/config';
+import { versionRoutes } from './routes/versions';
+import { VersionService } from './services/version-service';
 
 export interface AppOptions {
   ipcSocketPath?: string;
@@ -70,8 +72,10 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   }));
 
   // Register API routes
+  const versionService = new VersionService();
   await server.register(instanceRoutes, { ipc });
   await server.register(configRoutes, { ipc });
+  await server.register(versionRoutes, { versionService });
 
   return { server, ipc, wsHub };
 }
