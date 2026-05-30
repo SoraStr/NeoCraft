@@ -51,7 +51,16 @@ pub async fn download_jar(
 
     let mut stream = response.bytes_stream();
     let mut last_emit = std::time::Instant::now();
+    let start = std::time::Instant::now();
     let task_id = format!("download:{}", instance_id);
+
+    // Emit initial progress immediately so the UI shows the bar
+    let _ = event_tx.send(Event::DownloadProgress {
+        task_id: task_id.clone(),
+        downloaded: 0,
+        total,
+        percent: 0.0,
+    });
 
     use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
@@ -59,14 +68,17 @@ pub async fn download_jar(
         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
         downloaded += chunk.len() as u64;
 
-        // Emit progress every 100ms to avoid flooding
+        // Emit progress every 100ms or on last chunk
         let now = std::time::Instant::now();
-        if now.duration_since(last_emit).as_millis() >= 100 || downloaded == total {
+        let elapsed = now.duration_since(last_emit).as_millis();
+        let is_first = downloaded <= chunk.len() as u64; // first chunk
+        if is_first || elapsed >= 100 {
             last_emit = now;
             let percent = if total > 0 {
                 (downloaded as f64 / total as f64) * 100.0
             } else {
-                0.0
+                // Unknown total — use elapsed time to give visual feedback (cap at 99%)
+                (elapsed as f64 / 30_000.0 * 100.0).min(99.0)
             };
             let _ = event_tx.send(Event::DownloadProgress {
                 task_id: task_id.clone(),
@@ -76,6 +88,14 @@ pub async fn download_jar(
             });
         }
     }
+
+    // Final 100% event
+    let _ = event_tx.send(Event::DownloadProgress {
+        task_id: task_id.clone(),
+        downloaded,
+        total: if total == 0 { downloaded } else { total },
+        percent: 100.0,
+    });
 
     Ok(downloaded)
 }

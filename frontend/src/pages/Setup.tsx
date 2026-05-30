@@ -246,14 +246,23 @@ export default function Setup() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-blue-300">Downloading server JAR...</span>
                 <span className="text-sm text-blue-400 font-mono">
-                  {downloadProgress.percent.toFixed(1)}%
+                  {downloadProgress.total > 0
+                    ? `${downloadProgress.percent.toFixed(1)}%`
+                    : `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB`}
                 </span>
               </div>
               <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(downloadProgress.percent, 100)}%` }}
-                />
+                {downloadProgress.total > 0 ? (
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(downloadProgress.percent, 100)}%` }}
+                  />
+                ) : (
+                  <div
+                    className="h-full bg-blue-500 rounded-full animate-pulse transition-all duration-1000"
+                    style={{ width: `${Math.min(downloadProgress.percent, 99)}%` }}
+                  />
+                )}
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-xs text-gray-500">
@@ -261,6 +270,9 @@ export default function Setup() {
                     ? `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB / ${(downloadProgress.total / 1024 / 1024).toFixed(1)} MB`
                     : `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB downloaded`}
                 </span>
+                {downloadProgress.total === 0 && (
+                  <span className="text-xs text-gray-500">(total size unknown)</span>
+                )}
               </div>
             </div>
           )}
