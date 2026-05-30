@@ -2,15 +2,17 @@ import type { Instance, ServerVersion, CreateInstanceInput } from './types';
 
 const BASE = '/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout for UI
+  const timeoutMs = options?.timeoutMs ?? 10000;
+  const { timeoutMs: _, ...fetchOptions } = (options || {});
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
-      ...options,
+      ...fetchOptions,
     });
 
     if (!res.ok) {
@@ -42,9 +44,11 @@ export async function getInstance(id: string): Promise<Instance> {
 }
 
 export async function createInstance(input: CreateInstanceInput): Promise<Instance> {
+  // Long timeout — downloading the JAR can take minutes
   return request<Instance>('/instances', {
     method: 'POST',
     body: JSON.stringify(input),
+    timeoutMs: 300000, // 5 minutes
   });
 }
 

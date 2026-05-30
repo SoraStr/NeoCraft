@@ -189,19 +189,22 @@ async fn main() {
         "NeoCraft daemon starting"
     );
 
-    // Create event channel
+    // Create event channel — shared between InstanceManager and IpcServer
     let (event_tx, _) = broadcast::channel(256);
 
-    // Create instance manager
-    let manager = InstanceManager::new(data_dir, event_tx);
+    // Create instance manager (pass a clone so IPC server can share the channel)
+    let manager = InstanceManager::new(data_dir, event_tx.clone());
 
     // Create handler
     let handler = Arc::new(DaemonHandler {
         manager: Mutex::new(manager),
     });
 
-    // Create and run IPC server
-    let server = IpcServer::bind(socket_path.clone()).await.expect("failed to bind IPC socket");
+    // Create IPC server with shared event channel so download progress
+    // and state changes are forwarded to connected clients
+    let server = IpcServer::bind_with_tx(socket_path.clone(), event_tx)
+        .await
+        .expect("failed to bind IPC socket");
 
     // Handle Ctrl+C
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();

@@ -21,16 +21,23 @@ pub struct IpcServer {
 
 impl IpcServer {
     pub async fn bind(socket_path: PathBuf) -> Result<Self, std::io::Error> {
-        // Remove existing socket file if present
+        let (event_tx, _) = broadcast::channel(256);
+        Self::bind_with_tx(socket_path, event_tx).await
+    }
+
+    /// Bind with an externally-provided event channel, so InstanceManager events
+    /// (download progress, state changes, etc.) are forwarded to IPC clients.
+    pub async fn bind_with_tx(
+        socket_path: PathBuf,
+        event_tx: broadcast::Sender<Event>,
+    ) -> Result<Self, std::io::Error> {
         if socket_path.exists() {
             std::fs::remove_file(&socket_path)?;
         }
-        // Create parent directories
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let listener = UnixListener::bind(&socket_path)?;
-        let (event_tx, _) = broadcast::channel(256);
         Ok(Self {
             socket_path,
             listener: Some(listener),

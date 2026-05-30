@@ -8,8 +8,13 @@ interface InstanceRouteOptions {
 const VALID_TYPES = ['vanilla', 'paper', 'spigot', 'fabric'];
 
 /** Wrap IPC calls to catch connection errors and return 503 */
-async function ipcCall(ipc: IpcClient, method: string, params: Record<string, unknown>) {
-  const response = await ipc.request(method, params);
+async function ipcCall(
+  ipc: IpcClient,
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs?: number,
+) {
+  const response = await ipc.request(method, params, { timeout: timeoutMs ?? 30000 });
   if (response.error) {
     throw { statusCode: response.error.code === 'NOT_FOUND' ? 404 : 400, message: response.error.message };
   }
@@ -46,7 +51,8 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
         return reply.status(400).send({ error: `Invalid server type: ${type}. Must be one of: ${VALID_TYPES.join(', ')}` });
       }
 
-      const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565, download_url: downloadUrl || '' });
+      // Long timeout — daemon downloads the JAR during creation
+      const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565, download_url: downloadUrl || '' }, 300000);
       return reply.status(201).send(response.result);
     } catch (err: any) {
       if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
