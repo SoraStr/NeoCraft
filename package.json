@@ -4,6 +4,7 @@
   "description": "Minecraft server control panel for macOS",
   "scripts": {
     "dev": "concurrently \"npm run dev:daemon\" \"npm run dev:server\" \"npm run dev:frontend\"",
+    "dev:daemon": "cd daemon && cargo run",
     "dev:server": "cd server && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build:daemon": "cd daemon && cargo build --release",
