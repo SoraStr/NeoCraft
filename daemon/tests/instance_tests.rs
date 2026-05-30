@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
 use neocraft_daemon::instance::{InstanceManager, ServerType};
 use neocraft_daemon::protocol::{Event, InstanceState};
 use tokio::sync::broadcast;
@@ -7,6 +10,46 @@ fn setup() -> (TempDir, broadcast::Sender<Event>, broadcast::Receiver<Event>) {
     let dir = TempDir::new().unwrap();
     let (tx, rx) = broadcast::channel(256);
     (dir, tx, rx)
+}
+
+fn create_mock_java_script(dir: &Path) -> PathBuf {
+    let script_path = dir.join("mock-java.sh");
+    let script = r#"#!/bin/bash
+echo "[Server] Starting Minecraft server..."
+echo "[Server] Loading world..."
+echo "[Server] Done! For help, type \"help\""
+while IFS= read -r line; do
+    echo "[Server] Received: $line"
+    if [[ "$line" == "stop" ]]; then
+        echo "[Server] Stopping the server..."
+        sleep 0.2
+        echo "[Server] All chunks saved"
+        exit 0
+    fi
+done
+"#;
+    std::fs::write(&script_path, script).unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .output()
+        .unwrap();
+    script_path
+}
+
+fn create_crash_script(dir: &Path) -> PathBuf {
+    let script_path = dir.join("crash.sh");
+    std::fs::write(
+        &script_path,
+        "#!/bin/bash\necho 'Oops!'\nexit 1\n",
+    )
+    .unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .output()
+        .unwrap();
+    script_path
 }
 
 #[tokio::test]
@@ -142,4 +185,155 @@ async fn test_server_properties_template_has_required_keys() {
     assert!(props.contains("server-port=25566"));
     assert!(props.contains("motd="));
     assert!(props.contains("enable-rcon=false"));
+}
+
+#[tokio::test]
+async fn test_start_mock_server_process() {
+    let (dir, event_tx, mut event_rx) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx.clone());
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let mock_java = create_mock_java_script(dir.path());
+    let id = instance.id.clone();
+
+    manager
+        .start_with_command(&id, &mock_java, &[])
+        .await
+        .unwrap();
+
+    let inst = manager.get(&id).unwrap();
+    assert_eq!(inst.state, InstanceState::Running);
+
+    // Drain events looking for state change to Running
+    let mut found_running = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if let Event::InstanceStateChange { instance_id, state } = event {
+            if instance_id == id && state == InstanceState::Running {
+                found_running = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found_running,
+        "Should have emitted Running state change event"
+    );
+
+    // Clean up: stop the process
+    let _ = manager.stop(&id).await;
+}
+
+#[tokio::test]
+async fn test_stop_mock_server_via_stdin() {
+    let (dir, event_tx, _) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let mock_java = create_mock_java_script(dir.path());
+    let id = instance.id.clone();
+
+    manager
+        .start_with_command(&id, &mock_java, &[])
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    manager.stop(&id).await.unwrap();
+
+    let inst = manager.get(&id).unwrap();
+    assert_eq!(inst.state, InstanceState::Stopped);
+}
+
+#[tokio::test]
+async fn test_crash_detection() {
+    let (dir, event_tx, mut event_rx) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let crash_script = create_crash_script(dir.path());
+    let id = instance.id.clone();
+
+    manager
+        .start_with_command(&id, &crash_script, &[])
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let mut crashed = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if let Event::InstanceStateChange { instance_id, state } = event {
+            if instance_id == id && state == InstanceState::Crashed {
+                crashed = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        crashed,
+        "Instance should have transitioned to Crashed state"
+    );
+}
+
+#[tokio::test]
+async fn test_restart_stops_then_starts() {
+    let (dir, event_tx, _) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let mock_java = create_mock_java_script(dir.path());
+    let id = instance.id.clone();
+
+    manager
+        .start_with_command(&id, &mock_java, &[])
+        .await
+        .unwrap();
+    assert_eq!(manager.get(&id).unwrap().state, InstanceState::Running);
+
+    manager.restart(&id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(manager.get(&id).unwrap().state, InstanceState::Running);
+
+    // Clean up
+    let _ = manager.stop(&id).await;
+}
+
+#[tokio::test]
+async fn test_start_already_running_rejected() {
+    let (dir, event_tx, _) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let mock_java = create_mock_java_script(dir.path());
+    let id = instance.id.clone();
+
+    manager
+        .start_with_command(&id, &mock_java, &[])
+        .await
+        .unwrap();
+    let result = manager.start_with_command(&id, &mock_java, &[]).await;
+    assert!(result.is_err());
+
+    // Clean up
+    let _ = manager.stop(&id).await;
+}
+
+#[tokio::test]
+async fn test_stop_not_running_is_noop() {
+    let (dir, event_tx, _) = setup();
+    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565)
+        .await
+        .unwrap();
+    let result = manager.stop(&instance.id).await;
+    assert!(result.is_ok());
 }
