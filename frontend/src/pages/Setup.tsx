@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInstanceStore } from '../stores/instanceStore';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { getVersions, resolveDownloadUrl } from '../lib/api';
-import type { ServerType, ServerVersion } from '../lib/types';
+import type { ServerType, ServerVersion, IpcEvent } from '../lib/types';
 
 const SERVER_TYPES: { value: ServerType; label: string; desc: string }[] = [
   { value: 'paper', label: 'Paper', desc: 'High performance, plugin support. Recommended.' },
@@ -13,7 +14,10 @@ const SERVER_TYPES: { value: ServerType; label: string; desc: string }[] = [
 
 export default function Setup() {
   const navigate = useNavigate();
+  const { onEvent } = useWebSocket();
   const createInstance = useInstanceStore((s) => s.createInstance);
+  const downloadProgress = useInstanceStore((s) => s.downloadProgress);
+  const setDownloadProgress = useInstanceStore((s) => s.setDownloadProgress);
   const [step, setStep] = useState(1);
   const [serverType, setServerType] = useState<ServerType>('paper');
   const [selectedVersion, setSelectedVersion] = useState<ServerVersion | null>(null);
@@ -26,6 +30,20 @@ export default function Setup() {
   const [port, setPort] = useState(25565);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Listen for download progress events via WebSocket
+  useEffect(() => {
+    return onEvent((event: IpcEvent) => {
+      if (event.event === 'download.progress') {
+        setDownloadProgress({
+          taskId: event.data.task_id as string,
+          percent: event.data.percent as number,
+          downloaded: event.data.downloaded as number,
+          total: event.data.total as number,
+        });
+      }
+    });
+  }, [onEvent, setDownloadProgress]);
 
   const fetchVersions = async (type: ServerType) => {
     setLoadingVersions(true);
@@ -66,6 +84,7 @@ export default function Setup() {
   const handleCreate = async () => {
     setCreating(true);
     setError(null);
+    setDownloadProgress(null);
     try {
       await createInstance(
         name || 'My Server',
@@ -74,10 +93,11 @@ export default function Setup() {
         port,
         resolvedUrl,
       );
+      setDownloadProgress(null);
       navigate('/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create server');
-    } finally {
+      setDownloadProgress(null);
       setCreating(false);
     }
   };
@@ -220,8 +240,44 @@ export default function Setup() {
             </div>
           )}
 
+          {/* Download progress bar */}
+          {creating && downloadProgress && (
+            <div className="mt-4 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-blue-300">Downloading server JAR...</span>
+                <span className="text-sm text-blue-400 font-mono">
+                  {downloadProgress.percent.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(downloadProgress.percent, 100)}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-xs text-gray-500">
+                  {downloadProgress.total > 0
+                    ? `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB / ${(downloadProgress.total / 1024 / 1024).toFixed(1)} MB`
+                    : `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB downloaded`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {creating && !downloadProgress && (
+            <div className="mt-4 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30 text-center">
+              <div className="animate-spin inline-block w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full mr-2" />
+              <span className="text-sm text-blue-300">Creating server...</span>
+            </div>
+          )}
+
           <div className="flex gap-3 mt-4">
-            <button onClick={() => setStep(2)} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-300">
+            <button
+              onClick={() => setStep(2)}
+              disabled={creating}
+              className="px-4 py-2 text-sm text-gray-400 hover:text-gray-300 disabled:opacity-50"
+            >
               &larr; Back
             </button>
             <button

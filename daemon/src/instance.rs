@@ -98,6 +98,19 @@ impl InstanceManager {
             crate::files::default_server_properties(port, &name),
         )?;
 
+        // Download the server JAR if a URL is provided (before persisting instance)
+        if !download_url.is_empty() {
+            let jar_path = work_dir.join("server.jar");
+            crate::downloader::download_jar(
+                &download_url,
+                &jar_path,
+                &id,
+                &self.event_tx,
+            )
+            .await
+            .map_err(|e| InstanceError::Download(e.to_string()))?;
+        }
+
         let instance = Instance {
             id,
             name,
@@ -350,4 +363,6 @@ pub enum InstanceError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Download failed: {0}")]
+    Download(String),
 }

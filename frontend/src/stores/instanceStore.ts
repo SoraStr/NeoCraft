@@ -10,9 +10,11 @@ interface InstanceStore {
   stats: Record<string, InstanceStats | null>;
   loading: boolean;
   error: string | null;
+  downloadProgress: { taskId: string; percent: number; downloaded: number; total: number } | null;
 
   // Actions
   fetchInstances: () => Promise<void>;
+  setDownloadProgress: (progress: { taskId: string; percent: number; downloaded: number; total: number } | null) => void;
   createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
   startInstance: (id: string) => Promise<void>;
@@ -31,6 +33,7 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
   stats: {},
   loading: false,
   error: null,
+  downloadProgress: null,
 
   fetchInstances: async () => {
     set({ loading: true, error: null });
@@ -100,4 +103,6 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
   },
 
   selectInstance: (id) => set({ selectedId: id }),
+
+  setDownloadProgress: (progress) => set({ downloadProgress: progress }),
 }));

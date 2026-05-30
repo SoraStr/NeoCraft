@@ -917,6 +917,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "futures-util",
  "reqwest",
  "serde",
  "serde_json",
