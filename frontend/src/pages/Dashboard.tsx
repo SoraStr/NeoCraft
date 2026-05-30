@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInstanceStore } from '../stores/instanceStore';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { EmptyState } from '../components/ui/EmptyState';
+import { ErrorBanner } from '../components/ui/ErrorBanner';
+import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
 import type { IpcEvent } from '../lib/types';
 
 export default function Dashboard() {
@@ -32,14 +35,18 @@ export default function Dashboard() {
     });
   }, [onEvent, updateInstanceState, updateStats]);
 
-  if (loading) return <div className="p-8 text-gray-400">Loading...</div>;
-  if (error) return <div className="p-8 text-red-400">Error: {error}</div>;
+  if (loading) return <LoadingSkeleton lines={3} />;
+  if (error) return (
+    <div className="p-6">
+      <ErrorBanner message={error} onRetry={fetchInstances} />
+    </div>
+  );
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">NeoCraft</h1>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-sm text-gray-400">
             Daemon: {connected ? 'Connected' : 'Offline'}
           </p>
@@ -53,16 +60,11 @@ export default function Dashboard() {
       </div>
 
       {instances.length === 0 ? (
-        <div className="text-center py-20 text-gray-500">
-          <p className="text-lg mb-2">No servers yet</p>
-          <p className="text-sm mb-4">Create your first Minecraft server to get started</p>
-          <button
-            onClick={() => navigate('/setup')}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors"
-          >
-            Create Server
-          </button>
-        </div>
+        <EmptyState
+          title="No servers yet"
+          description="Create your first Minecraft server to get started"
+          action={{ label: 'Create Server', onClick: () => navigate('/setup') }}
+        />
       ) : (
         <div className="grid gap-4">
           {instances.map((inst) => {
