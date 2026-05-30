@@ -104,6 +104,27 @@ fn test_write_properties_handles_new_keys() {
 }
 
 #[test]
+fn test_write_properties_deletes_keys() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("out.properties");
+    let original = "# Header\nserver-port=25565\nmotd=Old\nenable-rcon=false\n# Footer\n";
+
+    std::fs::write(&path, original).unwrap();
+
+    // Write without "enable-rcon" — it should be deleted
+    let mut props = files::read_properties(&path).unwrap();
+    props.remove("enable-rcon");
+    props.insert("motd".into(), "Updated".into());
+    files::write_properties(&path, &props).unwrap();
+
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert!(!result.contains("enable-rcon"), "removed key should not appear");
+    assert!(result.contains("motd=Updated"), "updated key should appear");
+    assert!(result.contains("# Header"), "comments should be preserved");
+    assert!(result.contains("# Footer"), "comments should be preserved");
+}
+
+#[test]
 fn test_read_empty_properties() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = write_fixture(dir.path(), "empty.properties", "");

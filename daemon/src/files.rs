@@ -130,11 +130,8 @@ pub fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<
                 // Update existing key with new value
                 output.push_str(&format!("{}={}\n", key, new_value));
                 used_keys.insert(key.to_string());
-            } else {
-                // Keep original line (key removed from props)
-                output.push_str(line);
-                output.push('\n');
             }
+            // If key is not in props, omit it (supports deletion)
         } else {
             // Malformed line — preserve as-is
             output.push_str(line);
