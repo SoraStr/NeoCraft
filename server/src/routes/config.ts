@@ -45,6 +45,6 @@ export const configRoutes: FastifyPluginAsync<ConfigRouteOptions> = async (
       return reply.status(404).send({ error: response.error.message });
     }
 
-    return { ok: true, ...response.result };
+    return { ok: true, ...(response.result as Record<string, unknown> || {}) };
   });
 };

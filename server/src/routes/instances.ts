@@ -84,7 +84,7 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
       return reply.status(status).send({ error: response.error.message });
     }
 
-    return { ok: true, ...response.result };
+    return { ok: true, ...(response.result as Record<string, unknown> || {}) };
   });
 
   // Stop instance
@@ -96,7 +96,7 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
       return reply.status(404).send({ error: response.error.message });
     }
 
-    return { ok: true, ...response.result };
+    return { ok: true, ...(response.result as Record<string, unknown> || {}) };
   });
 
   // Restart instance
@@ -108,6 +108,6 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
       return reply.status(404).send({ error: response.error.message });
     }
 
-    return { ok: true, ...response.result };
+    return { ok: true, ...(response.result as Record<string, unknown> || {}) };
   });
 };
