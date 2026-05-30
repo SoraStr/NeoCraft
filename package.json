@@ -1,0 +1,18 @@
+{
+  "name": "neocraft",
+  "private": true,
+  "description": "Minecraft server control panel for macOS",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:daemon\" \"npm run dev:server\" \"npm run dev:frontend\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:daemon": "cd daemon && cargo build --release",
+    "test": "npm run test:daemon && npm run test:server && npm run test:frontend",
+    "test:daemon": "cd daemon && cargo test",
+    "test:server": "cd server && npm test",
+    "test:frontend": "cd frontend && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.0"
+  }
+}
