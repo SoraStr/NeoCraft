@@ -11,6 +11,14 @@ pub struct Request {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Method {
+    #[serde(rename = "instance.list")]
+    InstanceList,
+    #[serde(rename = "instance.create")]
+    InstanceCreate,
+    #[serde(rename = "instance.get")]
+    InstanceGet,
+    #[serde(rename = "instance.delete")]
+    InstanceDelete,
     #[serde(rename = "instance.start")]
     InstanceStart,
     #[serde(rename = "instance.stop")]

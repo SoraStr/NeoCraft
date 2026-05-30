@@ -1,6 +1,6 @@
 use clap::Parser;
 use neocraft_daemon::ipc::{IpcServer, RequestHandler};
-use neocraft_daemon::instance::{InstanceManager, InstanceError};
+use neocraft_daemon::instance::{InstanceManager, InstanceError, ServerType};
 use neocraft_daemon::protocol::{Request, Response, Method, Error as ProtoError};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,6 +37,44 @@ impl RequestHandler for DaemonHandler {
         let id = request.id.clone();
 
         match request.method {
+            Method::InstanceList => {
+                let list = manager.list();
+                let result: Vec<serde_json::Value> = list.iter()
+                    .map(|i| serde_json::to_value(i).unwrap_or_default())
+                    .collect();
+                Response { id, result: Some(serde_json::json!(result)), error: None }
+            }
+            Method::InstanceCreate => {
+                let name = request.params["name"].as_str().unwrap_or("My Server").to_string();
+                let version = request.params["version"].as_str().unwrap_or("1.21.5").to_string();
+                let port = request.params["port"].as_u64().unwrap_or(25565) as u16;
+                let st: ServerType = serde_json::from_value(request.params["type"].clone())
+                    .unwrap_or(ServerType::Paper);
+                match manager.create(name, st, version, port).await {
+                    Ok(instance) => {
+                        let result = serde_json::to_value(&instance).unwrap_or_default();
+                        Response { id, result: Some(result), error: None }
+                    }
+                    Err(e) => Response { id, result: None, error: Some(error_response("CREATE_ERROR", &e)) },
+                }
+            }
+            Method::InstanceGet => {
+                let inst_id = request.params["id"].as_str().unwrap_or("");
+                match manager.get(inst_id) {
+                    Some(instance) => {
+                        let result = serde_json::to_value(instance).unwrap_or_default();
+                        Response { id, result: Some(result), error: None }
+                    }
+                    None => Response { id, result: None, error: Some(ProtoError { code: "NOT_FOUND".into(), message: "Instance not found".into() }) },
+                }
+            }
+            Method::InstanceDelete => {
+                let inst_id = request.params["id"].as_str().unwrap_or("");
+                match manager.delete(inst_id).await {
+                    Ok(()) => Response { id, result: Some(serde_json::json!({"ok": true})), error: None },
+                    Err(e) => Response { id, result: None, error: Some(error_response("DELETE_ERROR", &e)) },
+                }
+            }
             Method::InstanceStart => {
                 let inst_id = request.params["id"].as_str().unwrap_or("");
                 match manager.start(inst_id).await {

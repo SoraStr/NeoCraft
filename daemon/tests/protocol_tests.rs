@@ -91,6 +91,37 @@ fn test_deserialize_download_progress_event() {
 }
 
 #[test]
+fn test_deserialize_list_request() {
+    let json = r#"{"id":"l1","method":"instance.list","params":{}}"#;
+    let req: Request = serde_json::from_str(json).unwrap();
+    assert!(matches!(req.method, Method::InstanceList));
+}
+
+#[test]
+fn test_deserialize_create_request() {
+    let json = r#"{"id":"c1","method":"instance.create","params":{"name":"Test","type":"paper","version":"1.21.5","port":25565}}"#;
+    let req: Request = serde_json::from_str(json).unwrap();
+    assert!(matches!(req.method, Method::InstanceCreate));
+    assert_eq!(req.params["name"], "Test");
+    assert_eq!(req.params["type"], "paper");
+    assert_eq!(req.params["port"], 25565);
+}
+
+#[test]
+fn test_deserialize_get_request() {
+    let json = r#"{"id":"g1","method":"instance.get","params":{"id":"some-uuid"}}"#;
+    let req: Request = serde_json::from_str(json).unwrap();
+    assert!(matches!(req.method, Method::InstanceGet));
+}
+
+#[test]
+fn test_deserialize_delete_request() {
+    let json = r#"{"id":"d1","method":"instance.delete","params":{"id":"some-uuid"}}"#;
+    let req: Request = serde_json::from_str(json).unwrap();
+    assert!(matches!(req.method, Method::InstanceDelete));
+}
+
+#[test]
 fn test_roundtrip_request_response() {
     let req = Request {
         id: "test".into(),
