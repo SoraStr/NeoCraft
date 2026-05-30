@@ -1,4 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import { spawn, ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import websocket from '@fastify/websocket';
 import cors from '@fastify/cors';
 import { IpcClient } from './services/ipc-client';
@@ -19,59 +22,123 @@ export interface AppInstance {
   wsHub: WebSocketHub;
 }
 
+function findDaemonBinary(): string | null {
+  // Check common locations
+  const candidates = [
+    join(process.cwd(), '..', 'daemon', 'target', 'release', 'neocraft-daemon'),
+    join(process.cwd(), '..', 'daemon', 'target', 'debug', 'neocraft-daemon'),
+    join(process.cwd(), 'daemon', 'target', 'release', 'neocraft-daemon'),
+    join(process.cwd(), 'daemon', 'target', 'debug', 'neocraft-daemon'),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) return path;
+  }
+  return null;
+}
+
+function spawnDaemon(socketPath: string): ChildProcess | null {
+  const bin = findDaemonBinary();
+  if (!bin) {
+    console.warn('[app] Daemon binary not found. Build it with: cd daemon && cargo build');
+    return null;
+  }
+  console.log(`[app] Auto-starting daemon: ${bin}`);
+  const child = spawn(bin, [
+    '--socket', socketPath,
+    '--data-dir', join(process.env.HOME || '/tmp', '.neocraft'),
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout?.on('data', (d) => process.stdout.write(`[daemon] ${d}`));
+  child.stderr?.on('data', (d) => process.stderr.write(`[daemon] ${d}`));
+  child.on('exit', (code) => console.log(`[app] Daemon exited with code ${code}`));
+  return child;
+}
+
 export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   const server = Fastify({ logger: true });
 
-  // Register plugins
   await server.register(cors);
   await server.register(websocket);
 
-  // Create IPC client
   const socketPath = options.ipcSocketPath ||
-    (process.env.HOME || process.env.USERPROFILE || '/tmp') + '/.neocraft/daemon.sock';
-  const ipc = new IpcClient(socketPath);
+    join(process.env.HOME || process.env.USERPROFILE || '/tmp', '.neocraft', 'daemon.sock');
 
-  // Create WebSocket hub
+  const ipc = new IpcClient(socketPath);
   const wsHub = new WebSocketHub();
 
-  // Connect to daemon (non-blocking in dev, will retry)
+  // Track daemon connection state
+  let daemonConnected = false;
+
+  // Try to connect, auto-spawn daemon if needed
   if (!options.mockIpc) {
-    ipc.connect().catch((err) => {
-      server.log.warn(`Failed to connect to daemon at ${socketPath}: ${err.message}`);
-      server.log.warn('Daemon connection will be retried automatically');
+    try {
+      await ipc.connect();
+      daemonConnected = true;
+      server.log.info(`Connected to daemon at ${socketPath}`);
+    } catch {
+      server.log.warn(`Daemon not running at ${socketPath}, attempting auto-start...`);
+      const child = spawnDaemon(socketPath);
+      if (child) {
+        // Wait for daemon to start up
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          try {
+            await ipc.connect();
+            daemonConnected = true;
+            server.log.info('Daemon auto-started and connected');
+            break;
+          } catch {
+            // still waiting
+          }
+        }
+      }
+      if (!daemonConnected) {
+        server.log.warn('Could not connect to daemon. Start it manually:');
+        server.log.warn('  cd daemon && cargo run');
+      }
+    }
+
+    // Monitor connection — if it drops, update status
+    ipc.onEvent((event) => {
+      wsHub.broadcast(event);
     });
+
+    // Periodic health ping to detect disconnects
+    setInterval(async () => {
+      try {
+        await ipc.request('instance.list', {}, { timeout: 2000 });
+        if (!daemonConnected) {
+          daemonConnected = true;
+          wsHub.broadcast({ event: 'daemon.status', data: { connected: true, version: '0.1.0' } });
+        }
+      } catch {
+        if (daemonConnected) {
+          daemonConnected = false;
+          wsHub.broadcast({ event: 'daemon.status', data: { connected: false } });
+        }
+      }
+    }, 5000);
   }
-  // In mock mode, connect silently succeeds (tests provide their own mock)
 
-  // Bridge IPC events to WebSocket
-  ipc.onEvent((event) => {
-    wsHub.broadcast(event);
-  });
-
-  // Register WebSocket endpoint
+  // WebSocket endpoint
   server.register(async function (scope) {
-    scope.get('/ws', { websocket: true }, (socket, req) => {
+    scope.get('/ws', { websocket: true }, (socket, _req) => {
       wsHub.addClient(socket);
-
-      // Send initial daemon status
       socket.send(JSON.stringify({
         event: 'daemon.status',
-        data: { version: '0.1.0', uptime_secs: 0 },
+        data: { connected: daemonConnected, version: '0.1.0' },
       }));
-
-      socket.on('close', () => {
-        wsHub.removeClient(socket);
-      });
+      socket.on('close', () => wsHub.removeClient(socket));
     });
   });
 
-  // Health check
+  // Health check that actually probes the daemon
   server.get('/api/health', async () => ({
     status: 'ok',
-    daemon_connected: wsHub.getConnectedCount() >= 0,
+    daemon_connected: daemonConnected,
   }));
 
-  // Register API routes
   const versionService = new VersionService();
   await server.register(instanceRoutes, { ipc });
   await server.register(configRoutes, { ipc });

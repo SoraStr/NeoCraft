@@ -3,7 +3,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { useInstanceStore } from '../../stores/instanceStore';
 
 export default function Sidebar() {
-  const { connected } = useWebSocket();
+  const { wsConnected, daemonConnected } = useWebSocket();
   const instances = useInstanceStore((s) => s.instances);
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -57,9 +57,9 @@ export default function Sidebar() {
 
       <div className="p-3 border-t border-gray-800">
         <div className="flex items-center gap-2 text-xs">
-          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className={`w-2 h-2 rounded-full ${daemonConnected ? 'bg-green-400' : wsConnected ? 'bg-yellow-400' : 'bg-red-400'}`} />
           <span className="text-gray-500">
-            {connected ? 'Daemon Connected' : 'Daemon Offline'}
+            {daemonConnected ? 'Daemon Online' : wsConnected ? 'No Daemon' : 'Offline'}
           </span>
         </div>
       </div>

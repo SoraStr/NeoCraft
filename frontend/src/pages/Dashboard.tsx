@@ -9,7 +9,7 @@ import type { IpcEvent } from '../lib/types';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { connected, onEvent } = useWebSocket();
+  const { wsConnected, daemonConnected, onEvent } = useWebSocket();
   const {
     instances, loading, error,
     fetchInstances, startInstance, stopInstance, restartInstance,
@@ -36,19 +36,46 @@ export default function Dashboard() {
   }, [onEvent, updateInstanceState, updateStats]);
 
   if (loading) return <LoadingSkeleton lines={3} />;
-  if (error) return (
-    <div className="p-6">
-      <ErrorBanner message={error} onRetry={fetchInstances} />
-    </div>
-  );
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      {!daemonConnected && (
+        <div className="mb-4 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+          <div className="flex items-start gap-2">
+            <span className="text-yellow-400 text-lg">⚠️</span>
+            <div>
+              <p className="text-yellow-300 font-medium">Daemon Offline</p>
+              <p className="text-sm text-yellow-400/80 mt-1">
+                The Rust daemon isn't running. Start it in a terminal:
+              </p>
+              <code className="block mt-2 p-2 bg-black/30 rounded text-xs text-yellow-300 font-mono">
+                cd daemon && cargo run
+              </code>
+              <p className="text-xs text-yellow-400/60 mt-2">
+                Or build first: <code className="bg-black/30 px-1 rounded">cd daemon && cargo build --release</code>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4">
+          <ErrorBanner message={error} onRetry={fetchInstances} />
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-sm text-gray-400">
-            Daemon: {connected ? 'Connected' : 'Offline'}
+            {daemonConnected ? (
+              <span className="text-green-400">🟢 Daemon Connected</span>
+            ) : wsConnected ? (
+              <span className="text-yellow-400">🟡 WebSocket OK — Daemon Offline</span>
+            ) : (
+              <span className="text-red-400">🔴 Disconnected</span>
+            )}
           </p>
         </div>
         <button
