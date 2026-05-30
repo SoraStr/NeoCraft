@@ -73,4 +73,41 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
 
     return reply.status(204).send();
   });
+
+  // Start instance
+  app.post('/api/instances/:id/start', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const response = await ipc.request('instance.start', { id });
+
+    if (response.error) {
+      const status = response.error.code === 'NOT_FOUND' ? 404 : 409;
+      return reply.status(status).send({ error: response.error.message });
+    }
+
+    return { ok: true, ...response.result };
+  });
+
+  // Stop instance
+  app.post('/api/instances/:id/stop', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const response = await ipc.request('instance.stop', { id });
+
+    if (response.error) {
+      return reply.status(404).send({ error: response.error.message });
+    }
+
+    return { ok: true, ...response.result };
+  });
+
+  // Restart instance
+  app.post('/api/instances/:id/restart', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const response = await ipc.request('instance.restart', { id });
+
+    if (response.error) {
+      return reply.status(404).send({ error: response.error.message });
+    }
+
+    return { ok: true, ...response.result };
+  });
 };

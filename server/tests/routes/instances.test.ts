@@ -38,6 +38,30 @@ function createMockIpc() {
           instances.delete(params.id);
           return { id: '', result: { ok: true } };
         }
+        case 'instance.start': {
+          const inst = instances.get(params.id);
+          if (!inst) {
+            return { id: '', error: { code: 'NOT_FOUND', message: 'Instance not found' } };
+          }
+          inst.state = 'running';
+          return { id: '', result: { ok: true, state: 'running' } };
+        }
+        case 'instance.stop': {
+          const inst = instances.get(params.id);
+          if (!inst) {
+            return { id: '', error: { code: 'NOT_FOUND', message: 'Instance not found' } };
+          }
+          inst.state = 'stopped';
+          return { id: '', result: { ok: true, state: 'stopped' } };
+        }
+        case 'instance.restart': {
+          const inst = instances.get(params.id);
+          if (!inst) {
+            return { id: '', error: { code: 'NOT_FOUND', message: 'Instance not found' } };
+          }
+          inst.state = 'running';
+          return { id: '', result: { ok: true, state: 'running' } };
+        }
         default:
           return { id: '', result: { ok: true } };
       }
@@ -207,6 +231,82 @@ describe('DELETE /api/instances/:id', () => {
       .expect(404);
 
     expect(res.body.error).toBeDefined();
+
+    await app.close();
+  });
+});
+
+describe('POST /api/instances/:id/start', () => {
+  it('should start a stopped instance', async () => {
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/start`)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('running');
+
+    await app.close();
+  });
+
+  it('should return 404 for unknown instance', async () => {
+    const { app } = await buildTestApp();
+
+    await supertest(app.server)
+      .post('/api/instances/nonexistent/start')
+      .expect(404);
+
+    await app.close();
+  });
+});
+
+describe('POST /api/instances/:id/stop', () => {
+  it('should stop a running instance', async () => {
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/stop`)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('stopped');
+
+    await app.close();
+  });
+});
+
+describe('POST /api/instances/:id/restart', () => {
+  it('should restart an instance', async () => {
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/restart`)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('running');
 
     await app.close();
   });
