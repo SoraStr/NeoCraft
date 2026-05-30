@@ -13,7 +13,7 @@ export default function Dashboard() {
   const {
     instances, loading, error,
     fetchInstances, startInstance, stopInstance, restartInstance,
-    updateInstanceState, updateStats, selectedId, selectInstance,
+    updateInstanceState, updateStats, appendLog, selectedId, selectInstance,
   } = useInstanceStore();
 
   useEffect(() => {
@@ -31,9 +31,16 @@ export default function Dashboard() {
           memoryMb: event.data.memory_mb as number,
           uptimeSecs: event.data.uptime_secs as number,
         });
+      } else if (event.event === 'instance.log') {
+        // Capture logs globally so Console page has history when opened
+        appendLog(event.data.instance_id as string, {
+          instanceId: event.data.instance_id as string,
+          line: event.data.line as string,
+          timestamp: event.data.timestamp as number,
+        });
       }
     });
-  }, [onEvent, updateInstanceState, updateStats]);
+  }, [onEvent, updateInstanceState, updateStats, appendLog]);
 
   if (loading) return <LoadingSkeleton lines={3} />;
 

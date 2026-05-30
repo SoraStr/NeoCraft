@@ -9,8 +9,14 @@ async function request<T>(path: string, options?: RequestInit & { timeoutMs?: nu
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Only set Content-Type when there's a body (avoids Fastify empty-body errors)
+    const headers: Record<string, string> = {};
+    if (fetchOptions.body) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const res = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       signal: controller.signal,
       ...fetchOptions,
     });
