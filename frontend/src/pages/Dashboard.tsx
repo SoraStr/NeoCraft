@@ -1,10 +1,152 @@
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useInstanceStore } from '../stores/instanceStore';
+import { useWebSocket } from '../hooks/useWebSocket';
+import type { IpcEvent } from '../lib/types';
+
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const { connected, onEvent } = useWebSocket();
+  const {
+    instances, loading, error,
+    fetchInstances, startInstance, stopInstance, restartInstance,
+    updateInstanceState, updateStats, selectedId, selectInstance,
+  } = useInstanceStore();
+
+  useEffect(() => {
+    fetchInstances();
+  }, [fetchInstances]);
+
+  useEffect(() => {
+    return onEvent((event: IpcEvent) => {
+      if (event.event === 'instance.state_change') {
+        updateInstanceState(event.data.instance_id as string, event.data.state as 'stopped' | 'starting' | 'running' | 'stopping' | 'crashed');
+      } else if (event.event === 'instance.stats') {
+        updateStats(event.data.instance_id as string, {
+          instanceId: event.data.instance_id as string,
+          cpuPercent: event.data.cpu_percent as number,
+          memoryMb: event.data.memory_mb as number,
+          uptimeSecs: event.data.uptime_secs as number,
+        });
+      }
+    });
+  }, [onEvent, updateInstanceState, updateStats]);
+
+  if (loading) return <div className="p-8 text-gray-400">Loading...</div>;
+  if (error) return <div className="p-8 text-red-400">Error: {error}</div>;
+
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold mb-2">NeoCraft</h1>
-        <p className="text-gray-400">Minecraft Server Control Panel</p>
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold">NeoCraft</h1>
+          <p className="text-sm text-gray-400">
+            Daemon: {connected ? 'Connected' : 'Offline'}
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/setup')}
+          className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors"
+        >
+          + New Server
+        </button>
       </div>
+
+      {instances.length === 0 ? (
+        <div className="text-center py-20 text-gray-500">
+          <p className="text-lg mb-2">No servers yet</p>
+          <p className="text-sm mb-4">Create your first Minecraft server to get started</p>
+          <button
+            onClick={() => navigate('/setup')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors"
+          >
+            Create Server
+          </button>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {instances.map((inst) => {
+            const stats = useInstanceStore.getState().stats[inst.id];
+            const stateColor = {
+              running: 'text-green-400', stopped: 'text-gray-400',
+              starting: 'text-yellow-400', stopping: 'text-yellow-400',
+              crashed: 'text-red-400',
+            }[inst.state];
+
+            return (
+              <div
+                key={inst.id}
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                  selectedId === inst.id
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                }`}
+                onClick={() => selectInstance(inst.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold">{inst.name}</h3>
+                    <p className="text-sm text-gray-400">
+                      {inst.type} {inst.version} &middot; Port {inst.port}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {stats && (
+                      <div className="text-right text-xs text-gray-400">
+                        <div>CPU: {stats.cpuPercent.toFixed(1)}%</div>
+                        <div>RAM: {stats.memoryMb} MB</div>
+                      </div>
+                    )}
+                    <span className={`text-sm font-medium ${stateColor}`}>
+                      {inst.state.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                {selectedId === inst.id && (
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-gray-700">
+                    {inst.state === 'stopped' || inst.state === 'crashed' ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startInstance(inst.id); }}
+                        className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
+                      >
+                        Start
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); stopInstance(inst.id); }}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
+                        >
+                          Stop
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); restartInstance(inst.id); }}
+                          className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm transition-colors"
+                        >
+                          Restart
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/console/${inst.id}`); }}
+                      className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                    >
+                      Console
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/config/${inst.id}`); }}
+                      className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                    >
+                      Config
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
