@@ -1,21 +1,17 @@
-import Fastify from 'fastify';
-import websocket from '@fastify/websocket';
-import cors from '@fastify/cors';
-
-const server = Fastify({ logger: true });
+import { buildApp } from './app.js';
 
 async function main() {
-  await server.register(cors);
-  await server.register(websocket);
+  const { server } = await buildApp();
 
-  server.get('/api/health', async () => ({ status: 'ok' }));
+  const port = parseInt(process.env.PORT || '3001', 10);
+  const host = process.env.HOST || '127.0.0.1';
 
-  const port = 3001;
-  await server.listen({ port, host: '127.0.0.1' });
-  server.log.info(`NeoCraft API server listening on :${port}`);
+  await server.listen({ port, host });
+  server.log.info(`NeoCraft API server listening on http://${host}:${port}`);
+  server.log.info(`WebSocket endpoint: ws://${host}:${port}/ws`);
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error('Failed to start server:', err);
   process.exit(1);
 });
