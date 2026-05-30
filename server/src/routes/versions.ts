@@ -23,4 +23,18 @@ export const versionRoutes: FastifyPluginAsync<VersionRouteOptions> = async (
       return reply.status(502).send({ error: `Failed to fetch versions: ${err.message}` });
     }
   });
+
+  // Resolve download URL for a specific version (fast — 1-2 API calls)
+  app.get('/api/versions/resolve', async (request, reply) => {
+    try {
+      const { type, version } = request.query as { type?: string; version?: string };
+      if (!type || !version) {
+        return reply.status(400).send({ error: 'Missing ?type= and ?version= parameters' });
+      }
+      const downloadUrl = await versionService.resolveDownloadUrl(type, version);
+      return { downloadUrl };
+    } catch (err: any) {
+      return reply.status(502).send({ error: `Failed to resolve download: ${err.message}` });
+    }
+  });
 };

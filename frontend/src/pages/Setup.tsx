@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInstanceStore } from '../stores/instanceStore';
-import { getVersions } from '../lib/api';
+import { getVersions, resolveDownloadUrl } from '../lib/api';
 import type { ServerType, ServerVersion } from '../lib/types';
 
 const SERVER_TYPES: { value: ServerType; label: string; desc: string }[] = [
@@ -17,8 +17,10 @@ export default function Setup() {
   const [step, setStep] = useState(1);
   const [serverType, setServerType] = useState<ServerType>('paper');
   const [selectedVersion, setSelectedVersion] = useState<ServerVersion | null>(null);
+  const [resolvedUrl, setResolvedUrl] = useState<string>('');
   const [versions, setVersions] = useState<ServerVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
+  const [resolvingUrl, setResolvingUrl] = useState(false);
   const [versionError, setVersionError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [port, setPort] = useState(25565);
@@ -41,13 +43,24 @@ export default function Setup() {
   const handleSelectType = (type: ServerType) => {
     setServerType(type);
     setSelectedVersion(null);
+    setResolvedUrl('');
     fetchVersions(type);
     setStep(2);
   };
 
-  const handleSelectVersion = (v: ServerVersion) => {
+  const handleSelectVersion = async (v: ServerVersion) => {
     setSelectedVersion(v);
-    setStep(3);
+    setResolvingUrl(true);
+    setVersionError(null);
+    try {
+      const url = await resolveDownloadUrl(v.type, v.id);
+      setResolvedUrl(url);
+      setStep(3);
+    } catch (err: unknown) {
+      setVersionError(err instanceof Error ? err.message : 'Failed to resolve download URL');
+    } finally {
+      setResolvingUrl(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -59,7 +72,7 @@ export default function Setup() {
         serverType,
         selectedVersion?.id || '',
         port,
-        selectedVersion?.downloadUrl,
+        resolvedUrl,
       );
       navigate('/');
     } catch (err: unknown) {
@@ -73,13 +86,9 @@ export default function Setup() {
     <div className="p-6 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Create New Server</h1>
 
-      {/* Step indicator */}
       <div className="flex gap-2 mb-8">
         {[1, 2, 3].map((s) => (
-          <div
-            key={s}
-            className={`flex-1 h-1 rounded ${s <= step ? 'bg-blue-500' : 'bg-gray-700'}`}
-          />
+          <div key={s} className={`flex-1 h-1 rounded ${s <= step ? 'bg-blue-500' : 'bg-gray-700'}`} />
         ))}
       </div>
 
@@ -112,54 +121,52 @@ export default function Setup() {
           </h2>
 
           {loadingVersions && (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-12 text-gray-400">
               <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full mb-2" />
               <p className="text-sm">Fetching versions from {serverType} API...</p>
             </div>
           )}
 
-          {versionError && (
+          {resolvingUrl && (
+            <div className="text-center py-4 text-gray-400">
+              <div className="animate-spin inline-block w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full mb-1" />
+              <p className="text-xs">Resolving download URL for {selectedVersion?.id}...</p>
+            </div>
+          )}
+
+          {versionError && !resolvingUrl && (
             <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm mb-4">
-              Failed to fetch versions: {versionError}
-              <button
-                onClick={() => fetchVersions(serverType)}
-                className="ml-3 underline hover:text-red-300"
-              >
+              {versionError}
+              <button onClick={() => fetchVersions(serverType)} className="ml-3 underline hover:text-red-300">
                 Retry
               </button>
             </div>
           )}
 
-          {!loadingVersions && !versionError && (
-            <>
-              {versions.length === 0 ? (
-                <p className="text-gray-400 py-8 text-center">No versions found.</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-2 mb-4 max-h-96 overflow-y-auto">
-                  {versions.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => handleSelectVersion(v)}
-                      className={`p-3 rounded-lg border text-center transition-colors ${
-                        selectedVersion?.id === v.id
-                          ? 'border-blue-500 bg-blue-500/10'
-                          : 'border-gray-700 hover:border-gray-500'
-                      }`}
-                    >
-                      <div className="text-sm font-medium">{v.id}</div>
-                      {v.downloadUrl && (
-                        <div className="text-xs text-gray-500 mt-1 truncate" title={v.downloadUrl}>
-                          ✓ available
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+          {!loadingVersions && !resolvingUrl && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4 max-h-96 overflow-y-auto">
+              {versions.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => handleSelectVersion(v)}
+                  disabled={resolvingUrl}
+                  className={`p-3 rounded-lg border text-center transition-colors disabled:opacity-50 ${
+                    selectedVersion?.id === v.id
+                      ? 'border-blue-500 bg-blue-500/10'
+                      : 'border-gray-700 hover:border-gray-500'
+                  }`}
+                >
+                  <div className="text-sm font-medium">{v.id}</div>
+                </button>
+              ))}
+            </div>
           )}
 
-          <button onClick={() => setStep(1)} className="text-sm text-gray-400 hover:text-gray-300">
+          <button
+            onClick={() => setStep(1)}
+            disabled={resolvingUrl}
+            className="text-sm text-gray-400 hover:text-gray-300 disabled:opacity-50"
+          >
             &larr; Back
           </button>
         </div>
@@ -191,10 +198,16 @@ export default function Setup() {
           </div>
           <div className="mt-6 p-4 rounded-lg bg-gray-800/50 border border-gray-700">
             <h3 className="font-medium mb-2">Summary</h3>
-            <p className="text-sm text-gray-400">Type: <span className="text-gray-300 capitalize">{serverType}</span></p>
-            <p className="text-sm text-gray-400">Version: <span className="text-gray-300">{selectedVersion?.id}</span></p>
-            <p className="text-sm text-gray-400">Port: <span className="text-gray-300">{port}</span></p>
-            {selectedVersion?.downloadUrl ? (
+            <p className="text-sm text-gray-400">
+              Type: <span className="text-gray-300 capitalize">{serverType}</span>
+            </p>
+            <p className="text-sm text-gray-400">
+              Version: <span className="text-gray-300">{selectedVersion?.id}</span>
+            </p>
+            <p className="text-sm text-gray-400">
+              Port: <span className="text-gray-300">{port}</span>
+            </p>
+            {resolvedUrl ? (
               <p className="text-xs text-green-400/70 mt-1">✓ Download URL resolved</p>
             ) : (
               <p className="text-xs text-yellow-400/70 mt-1">⚠ No download URL — server jar must be provided manually</p>

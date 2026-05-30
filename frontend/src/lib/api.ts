@@ -76,5 +76,16 @@ export async function updateConfig(id: string, properties: Record<string, string
 }
 
 export async function getVersions(type: string): Promise<ServerVersion[]> {
+  // Version list fetch is fast (one API call), use default 10s timeout
   return request<ServerVersion[]>(`/versions?type=${type}`);
+}
+
+export async function resolveDownloadUrl(type: string, version: string): Promise<string> {
+  const res = await fetch(`${BASE}/versions/resolve?type=${encodeURIComponent(type)}&version=${encodeURIComponent(version)}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as any).error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.downloadUrl;
 }

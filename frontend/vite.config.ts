@@ -7,8 +7,24 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3001',
-      '/ws': { target: 'ws://localhost:3001', ws: true },
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {
+            // Suppress — the frontend handles server-down gracefully
+          });
+        },
+      },
+      '/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {
+            // Suppress noisy WS proxy errors when server isn't running
+          });
+        },
+      },
     },
   },
 })
