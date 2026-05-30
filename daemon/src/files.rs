@@ -1,6 +1,11 @@
 //! File system operations — config templates, properties parsing.
 
-/// Generate a default `server.properties` content for a new instance.
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+
+/// Generate a default server.properties content for a new instance.
 pub fn default_server_properties(port: u16, motd: &str) -> String {
     format!(
         "#Minecraft server properties\n\
@@ -20,7 +25,85 @@ pub fn default_server_properties(port: u16, motd: &str) -> String {
     )
 }
 
-/// Generate `eula.txt` content with eula accepted.
+/// Generate eula.txt content with eula accepted.
 pub fn eula_accepted() -> &'static str {
     "#EULA accepted automatically by NeoCraft\neula=true\n"
+}
+
+/// Read a Java .properties file into a HashMap.
+/// Preserves only key-value pairs; comments and blank lines are not stored.
+pub fn read_properties(path: &Path) -> Result<HashMap<String, String>, std::io::Error> {
+    let file = fs::File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut props = HashMap::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+
+        // Skip comments and blank lines
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
+            continue;
+        }
+
+        // Split on first = or :
+        if let Some(pos) = trimmed.find(|c: char| c == '=' || c == ':') {
+            let key = trimmed[..pos].trim().to_string();
+            let value = trimmed[pos + 1..].trim().to_string();
+            if !key.is_empty() {
+                props.insert(key, value);
+            }
+        }
+    }
+
+    Ok(props)
+}
+
+/// Write a HashMap to a .properties file, preserving existing comments and structure.
+/// Keys that exist in the file are updated in-place; new keys are appended.
+pub fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<(), std::io::Error> {
+    // Read original file lines to preserve comments and ordering
+    let original_lines: Vec<String> = if path.exists() {
+        let file = fs::File::open(path)?;
+        BufReader::new(file).lines().collect::<Result<Vec<_>, _>>()?
+    } else {
+        Vec::new()
+    };
+
+    let mut used_keys = std::collections::HashSet::new();
+    let mut output = String::new();
+
+    for line in &original_lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
+            // Preserve comments and blank lines as-is
+            output.push_str(line);
+            output.push('\n');
+        } else if let Some(pos) = trimmed.find(|c: char| c == '=' || c == ':') {
+            let key = trimmed[..pos].trim();
+            if let Some(new_value) = props.get(key) {
+                // Update existing key with new value
+                output.push_str(&format!("{}={}\n", key, new_value));
+                used_keys.insert(key.to_string());
+            } else {
+                // Keep original line (key removed from props)
+                output.push_str(line);
+                output.push('\n');
+            }
+        } else {
+            // Malformed line — preserve as-is
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+
+    // Append new keys that weren't in the original file
+    for (key, value) in props {
+        if !used_keys.contains(key.as_str()) {
+            output.push_str(&format!("{}={}\n", key, value));
+        }
+    }
+
+    fs::write(path, output)?;
+    Ok(())
 }
