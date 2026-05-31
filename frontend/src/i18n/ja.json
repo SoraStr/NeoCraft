@@ -1,0 +1,123 @@
+{
+  "app": {
+    "title": "NeoCraft",
+    "subtitle": "Minecraft サーバーコントロールパネル"
+  },
+  "nav": {
+    "dashboard": "ダッシュボード",
+    "newServer": "新規サーバー",
+    "servers": "サーバー",
+    "console": "コンソール",
+    "config": "設定"
+  },
+  "status": {
+    "daemonOnline": "デーモンオンライン",
+    "daemonOffline": "デーモンなし",
+    "disconnected": "切断",
+    "websocketOk": "WebSocket OK — デーモンオフライン",
+    "daemonConnected": "デーモン接続済み",
+    "downloadProgress": "サーバーJARをダウンロード中...",
+    "totalUnknown": "(合計サイズ不明)",
+    "mbDownloaded": "{{downloaded}} MB ダウンロード済み",
+    "mbTotal": "{{downloaded}} MB / {{total}} MB",
+    "creating": "サーバーを作成中...",
+    "loading": "読み込み中...",
+    "saving": "保存中...",
+    "saved": "保存しました",
+    "error": "エラー",
+    "retry": "再試行"
+  },
+  "dashboard": {
+    "title": "ダッシュボード",
+    "noServers": "サーバーがありません",
+    "noServersDesc": "最初のMinecraftサーバーを作成しましょう",
+    "createServer": "サーバーを作成",
+    "newServer": "+ 新規サーバー",
+    "start": "起動",
+    "stop": "停止",
+    "restart": "再起動",
+    "cpu": "CPU",
+    "ram": "メモリ",
+    "port": "ポート",
+    "state": {
+      "running": "実行中",
+      "stopped": "停止中",
+      "starting": "起動中",
+      "stopping": "停止中",
+      "crashed": "クラッシュ"
+    },
+    "daemonOfflineTitle": "デーモンオフライン",
+    "daemonOfflineDesc": "Rustデーモンが実行されていません。ターミナルで起動してください：",
+    "orBuild": "または先にビルド："
+  },
+  "setup": {
+    "title": "新規サーバー",
+    "step1": "サーバータイプを選択",
+    "step2": "バージョンを選択",
+    "step3": "サーバー設定",
+    "serverName": "サーバー名",
+    "serverNamePlaceholder": "私のMinecraftサーバー",
+    "port": "ポート",
+    "back": "← 戻る",
+    "create": "サーバーを作成",
+    "creating": "作成中...",
+    "summary": "サマリー",
+    "type": "タイプ",
+    "version": "バージョン",
+    "urlResolved": "✓ ダウンロードURL解決済み",
+    "urlMissing": "⚠ ダウンロードURLなし — 手動でサーバーJARを提供してください",
+    "fetchingVersions": "{{type}} APIからバージョン一覧を取得中...",
+    "resolvingUrl": "{{version}} のダウンロードURLを解決中...",
+    "available": "利用可能",
+    "noVersions": "バージョンが見つかりません",
+    "fetchFailed": "バージョンの取得に失敗しました",
+    "resolveFailed": "ダウンロードURLの解決に失敗しました",
+    "createFailed": "サーバーの作成に失敗しました",
+    "paper": "Paper",
+    "paperDesc": "高パフォーマンス、プラグイン対応。推奨。",
+    "vanilla": "Vanilla",
+    "vanillaDesc": "Mojang公式サーバー。MOD/プラグイン非対応。",
+    "spigot": "Spigot",
+    "spigotDesc": "安定したプラグインサーバー。互換性良好。",
+    "fabric": "Fabric",
+    "fabricDesc": "軽量MODプラットフォーム。"
+  },
+  "console": {
+    "title": "コンソール",
+    "notFound": "サーバーが見つかりません",
+    "backToDashboard": "← ダッシュボードに戻る",
+    "waitingOutput": "サーバーの出力を待っています...",
+    "state": {
+      "running": "実行中",
+      "stopped": "停止中",
+      "starting": "起動中",
+      "stopping": "停止中",
+      "crashed": "クラッシュ"
+    }
+  },
+  "config": {
+    "title": "サーバー設定",
+    "notFound": "サーバーが見つかりません",
+    "backToDashboard": "← ダッシュボードに戻る",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "✓ 保存しました",
+    "loadingFailed": "設定の読み込みに失敗しました",
+    "saveFailed": "設定の保存に失敗しました",
+    "runningWarning": "⚠ サーバー実行中。変更は再起動後に反映されます。",
+    "addProperty": "+ プロパティを追加",
+    "add": "追加",
+    "cancel": "キャンセル",
+    "removed": "削除予定（保存後に反映）：",
+    "undoRemove": "元に戻す",
+    "propertyName": "プロパティ名",
+    "value": "値",
+    "loading": "設定を読み込み中..."
+  },
+  "serverTypes": {
+    "paper": "Paper",
+    "vanilla": "Vanilla",
+    "spigot": "Spigot",
+    "fabric": "Fabric"
+  }
+}

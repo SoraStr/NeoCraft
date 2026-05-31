@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -8,6 +9,7 @@ import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
 import type { IpcEvent } from '../lib/types';
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { wsConnected, daemonConnected, onEvent } = useWebSocket();
   const {
@@ -51,15 +53,15 @@ export default function Dashboard() {
           <div className="flex items-start gap-2">
             <span className="text-yellow-400 text-lg">⚠️</span>
             <div>
-              <p className="text-yellow-300 font-medium">Daemon Offline</p>
+              <p className="text-yellow-300 font-medium">{t('dashboard.daemonOfflineTitle')}</p>
               <p className="text-sm text-yellow-400/80 mt-1">
-                The Rust daemon isn't running. Start it in a terminal:
+                {t('dashboard.daemonOfflineDesc')}
               </p>
               <code className="block mt-2 p-2 bg-black/30 rounded text-xs text-yellow-300 font-mono">
                 cd daemon && cargo run
               </code>
               <p className="text-xs text-yellow-400/60 mt-2">
-                Or build first: <code className="bg-black/30 px-1 rounded">cd daemon && cargo build --release</code>
+                {t('dashboard.orBuild')} <code className="bg-black/30 px-1 rounded">cd daemon && cargo build --release</code>
               </p>
             </div>
           </div>
@@ -68,20 +70,20 @@ export default function Dashboard() {
 
       {error && (
         <div className="mb-4">
-          <ErrorBanner message={error} onRetry={fetchInstances} />
+          <ErrorBanner message={error} onRetry={fetchInstances} retryLabel={t('status.retry')} />
         </div>
       )}
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
           <p className="text-sm text-gray-400">
             {daemonConnected ? (
-              <span className="text-green-400">🟢 Daemon Connected</span>
+              <span className="text-green-400">🟢 {t('status.daemonConnected')}</span>
             ) : wsConnected ? (
-              <span className="text-yellow-400">🟡 WebSocket OK — Daemon Offline</span>
+              <span className="text-yellow-400">🟡 {t('status.websocketOk')}</span>
             ) : (
-              <span className="text-red-400">🔴 Disconnected</span>
+              <span className="text-red-400">🔴 {t('status.disconnected')}</span>
             )}
           </p>
         </div>
@@ -89,15 +91,15 @@ export default function Dashboard() {
           onClick={() => navigate('/setup')}
           className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors"
         >
-          + New Server
+          {t('dashboard.newServer')}
         </button>
       </div>
 
       {instances.length === 0 ? (
         <EmptyState
-          title="No servers yet"
-          description="Create your first Minecraft server to get started"
-          action={{ label: 'Create Server', onClick: () => navigate('/setup') }}
+          title={t('dashboard.noServers')}
+          description={t('dashboard.noServersDesc')}
+          action={{ label: t('dashboard.createServer'), onClick: () => navigate('/setup') }}
         />
       ) : (
         <div className="grid gap-4">
@@ -123,18 +125,18 @@ export default function Dashboard() {
                   <div>
                     <h3 className="font-semibold">{inst.name}</h3>
                     <p className="text-sm text-gray-400">
-                      {inst.type} {inst.version} &middot; Port {inst.port}
+                      {t(`serverTypes.${inst.type}`)} {inst.version} &middot; {t('dashboard.port')} {inst.port}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
                     {stats && (
                       <div className="text-right text-xs text-gray-400">
-                        <div>CPU: {stats.cpuPercent.toFixed(1)}%</div>
-                        <div>RAM: {stats.memoryMb} MB</div>
+                        <div>{t('dashboard.cpu')}: {stats.cpuPercent.toFixed(1)}%</div>
+                        <div>{t('dashboard.ram')}: {stats.memoryMb} MB</div>
                       </div>
                     )}
                     <span className={`text-sm font-medium ${stateColor}`}>
-                      {inst.state.toUpperCase()}
+                      {t(`dashboard.state.${inst.state}`)}
                     </span>
                   </div>
                 </div>
@@ -146,7 +148,7 @@ export default function Dashboard() {
                         onClick={(e) => { e.stopPropagation(); startInstance(inst.id); }}
                         className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
                       >
-                        Start
+                        {t('dashboard.start')}
                       </button>
                     ) : (
                       <>
@@ -154,13 +156,13 @@ export default function Dashboard() {
                           onClick={(e) => { e.stopPropagation(); stopInstance(inst.id); }}
                           className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
                         >
-                          Stop
+                          {t('dashboard.stop')}
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); restartInstance(inst.id); }}
                           className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm transition-colors"
                         >
-                          Restart
+                          {t('dashboard.restart')}
                         </button>
                       </>
                     )}
@@ -168,13 +170,13 @@ export default function Dashboard() {
                       onClick={(e) => { e.stopPropagation(); navigate(`/console/${inst.id}`); }}
                       className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
                     >
-                      Console
+                      {t('nav.console')}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); navigate(`/config/${inst.id}`); }}
                       className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
                     >
-                      Config
+                      {t('nav.config')}
                     </button>
                   </div>
                 )}

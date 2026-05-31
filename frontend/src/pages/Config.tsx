@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
 import * as api from '../lib/api';
 
 export default function Config() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const instances = useInstanceStore((s) => s.instances);
@@ -30,9 +32,9 @@ export default function Config() {
         setEdited({});
         setRemoved(new Set());
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load config'))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('config.loadingFailed')))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, t]);
 
   const handleChange = (key: string, value: string) => {
     setEdited((prev) => ({ ...prev, [key]: value }));
@@ -84,7 +86,7 @@ export default function Config() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save config');
+      setError(err instanceof Error ? err.message : t('config.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -99,9 +101,9 @@ export default function Config() {
   if (!instance) {
     return (
       <div className="p-6 text-center text-gray-400">
-        <p>Server not found</p>
+        <p>{t('config.notFound')}</p>
         <button onClick={() => navigate('/')} className="mt-4 text-blue-400 hover:underline">
-          &larr; Back to Dashboard
+          {t('config.backToDashboard')}
         </button>
       </div>
     );
@@ -114,33 +116,33 @@ export default function Config() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-gray-300 mb-1">
-            &larr; Dashboard
+            {t('config.backToDashboard')}
           </button>
           <h1 className="text-xl font-bold">{instance.name} — server.properties</h1>
         </div>
         <div className="flex items-center gap-3">
-          {saved && <span className="text-sm text-green-400">✓ Saved</span>}
+          {saved && <span className="text-sm text-green-400">{t('config.saved')}</span>}
           {error && <span className="text-sm text-red-400 max-w-48 truncate" title={error}>{error}</span>}
           <button
             onClick={handleSave}
             disabled={!hasChanges || saving}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? t('config.saving') : t('config.save')}
           </button>
         </div>
       </div>
 
       {isRunning && (
         <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm">
-          ⚠ Server is running. Changes will take effect after restart.
+          {t('config.runningWarning')}
         </div>
       )}
 
       {loading ? (
         <div className="text-center py-12 text-gray-400">
           <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full mb-2" />
-          <p className="text-sm">Loading properties...</p>
+          <p className="text-sm">{t('config.loading')}</p>
         </div>
       ) : (
         <>
@@ -183,13 +185,13 @@ export default function Config() {
           {/* Removed properties with undo */}
           {removed.size > 0 && (
             <div className="mb-4">
-              <p className="text-xs text-gray-500 mb-1">Removed (will be deleted on save):</p>
+              <p className="text-xs text-gray-500 mb-1">{t('config.removed')}</p>
               {Array.from(removed).filter(k => k in properties).map((key) => (
                 <div key={key} className="flex items-center gap-2 text-xs text-gray-500 line-through py-0.5">
                   <button
                     onClick={() => handleUndoRemove(key)}
                     className="text-gray-500 hover:text-blue-400"
-                    title="Undo remove"
+                    title={t('config.undoRemove')}
                   >
                     ↩
                   </button>
@@ -208,7 +210,7 @@ export default function Config() {
                 type="text"
                 value={newKey}
                 onChange={(e) => setNewKey(e.target.value)}
-                placeholder="property-name"
+                placeholder={t('config.propertyName')}
                 className="w-48 p-1.5 rounded bg-gray-800 border border-gray-700 text-sm font-mono outline-none focus:border-blue-500"
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
@@ -217,7 +219,7 @@ export default function Config() {
                 type="text"
                 value={newValue}
                 onChange={(e) => setNewValue(e.target.value)}
-                placeholder="value"
+                placeholder={t('config.value')}
                 className="flex-1 p-1.5 rounded bg-gray-800 border border-gray-700 text-sm font-mono outline-none focus:border-blue-500"
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
@@ -226,13 +228,13 @@ export default function Config() {
                 disabled={!newKey.trim()}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs transition-colors"
               >
-                Add
+                {t('config.add')}
               </button>
               <button
                 onClick={() => setShowAdd(false)}
                 className="px-2 py-1.5 text-gray-500 hover:text-gray-300 text-xs"
               >
-                Cancel
+                {t('config.cancel')}
               </button>
             </div>
           ) : (
@@ -240,7 +242,7 @@ export default function Config() {
               onClick={() => setShowAdd(true)}
               className="text-xs text-gray-500 hover:text-blue-400 transition-colors flex items-center gap-1"
             >
-              <span className="text-base leading-none">+</span> Add property
+              {t('config.addProperty')}
             </button>
           )}
         </>

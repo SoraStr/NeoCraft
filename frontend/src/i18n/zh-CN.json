@@ -1,0 +1,123 @@
+{
+  "app": {
+    "title": "NeoCraft",
+    "subtitle": "Minecraft 服务器控制面板"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "newServer": "新建服务器",
+    "servers": "服务器",
+    "console": "控制台",
+    "config": "配置"
+  },
+  "status": {
+    "daemonOnline": "守护进程在线",
+    "daemonOffline": "无守护进程",
+    "disconnected": "已断开",
+    "websocketOk": "WebSocket 已连接 — 守护进程离线",
+    "daemonConnected": "守护进程已连接",
+    "downloadProgress": "正在下载服务器核心...",
+    "totalUnknown": "(总大小未知)",
+    "mbDownloaded": "{{downloaded}} MB 已下载",
+    "mbTotal": "{{downloaded}} MB / {{total}} MB",
+    "creating": "正在创建服务器...",
+    "loading": "加载中...",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "error": "错误",
+    "retry": "重试"
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "noServers": "暂无服务器",
+    "noServersDesc": "创建你的第一个 Minecraft 服务器以开始使用",
+    "createServer": "创建服务器",
+    "newServer": "+ 新建服务器",
+    "start": "启动",
+    "stop": "停止",
+    "restart": "重启",
+    "cpu": "CPU",
+    "ram": "内存",
+    "port": "端口",
+    "state": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "starting": "启动中",
+      "stopping": "停止中",
+      "crashed": "已崩溃"
+    },
+    "daemonOfflineTitle": "守护进程离线",
+    "daemonOfflineDesc": "Rust 守护进程未运行。请在终端中启动：",
+    "orBuild": "或先构建："
+  },
+  "setup": {
+    "title": "新建服务器",
+    "step1": "选择服务端类型",
+    "step2": "选择版本",
+    "step3": "服务器设置",
+    "serverName": "服务器名称",
+    "serverNamePlaceholder": "我的 Minecraft 服务器",
+    "port": "端口",
+    "back": "← 返回",
+    "create": "创建服务器",
+    "creating": "创建中...",
+    "summary": "摘要",
+    "type": "类型",
+    "version": "版本",
+    "urlResolved": "✓ 下载地址已解析",
+    "urlMissing": "⚠ 无下载地址 — 需手动提供服务器核心",
+    "fetchingVersions": "正在从 {{type}} API 获取版本列表...",
+    "resolvingUrl": "正在解析 {{version}} 的下载地址...",
+    "available": "可用",
+    "noVersions": "未找到版本",
+    "fetchFailed": "获取版本失败",
+    "resolveFailed": "解析下载地址失败",
+    "createFailed": "创建服务器失败",
+    "paper": "Paper",
+    "paperDesc": "高性能，支持插件。推荐使用。",
+    "vanilla": "Vanilla",
+    "vanillaDesc": "Mojang 官方服务端，不支持模组和插件。",
+    "spigot": "Spigot",
+    "spigotDesc": "稳定的插件服务器，兼容性好。",
+    "fabric": "Fabric",
+    "fabricDesc": "轻量模组平台。"
+  },
+  "console": {
+    "title": "控制台",
+    "notFound": "服务器未找到",
+    "backToDashboard": "← 返回仪表盘",
+    "waitingOutput": "等待服务器输出...",
+    "state": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "starting": "启动中",
+      "stopping": "停止中",
+      "crashed": "已崩溃"
+    }
+  },
+  "config": {
+    "title": "服务器配置",
+    "notFound": "服务器未找到",
+    "backToDashboard": "← 返回仪表盘",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "✓ 已保存",
+    "loadingFailed": "加载配置失败",
+    "saveFailed": "保存配置失败",
+    "runningWarning": "⚠ 服务器正在运行。修改将在重启后生效。",
+    "addProperty": "+ 添加属性",
+    "add": "添加",
+    "cancel": "取消",
+    "removed": "已删除（保存后生效）：",
+    "undoRemove": "撤销",
+    "propertyName": "属性名",
+    "value": "值",
+    "loading": "正在加载配置..."
+  },
+  "serverTypes": {
+    "paper": "Paper",
+    "vanilla": "Vanilla",
+    "spigot": "Spigot",
+    "fabric": "Fabric"
+  }
+}

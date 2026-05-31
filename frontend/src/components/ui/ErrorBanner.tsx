@@ -1,10 +1,11 @@
 interface ErrorBannerProps {
   message: string;
   onRetry?: () => void;
+  retryLabel?: string;
   onDismiss?: () => void;
 }
 
-export function ErrorBanner({ message, onRetry, onDismiss }: ErrorBannerProps) {
+export function ErrorBanner({ message, onRetry, retryLabel = 'Retry', onDismiss }: ErrorBannerProps) {
   return (
     <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-between">
       <div className="flex items-center gap-2">
@@ -17,7 +18,7 @@ export function ErrorBanner({ message, onRetry, onDismiss }: ErrorBannerProps) {
             onClick={onRetry}
             className="px-3 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded transition-colors"
           >
-            Retry
+            {retryLabel}
           </button>
         )}
         {onDismiss && (
