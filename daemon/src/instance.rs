@@ -330,7 +330,8 @@ impl InstanceManager {
         if !cpu_affinity.is_empty() {
             if let Some(pid) = child.id() {
                 if let Err(e) = affinity::set_process_affinity(pid, cpu_affinity) {
-                    tracing::warn!(instance_id = %id, error = %e, "Failed to set CPU affinity");
+                    tracing::info!(instance_id = %id, error = %e,
+                        "CPU affinity not available (requires SIP-disabled or root — server runs normally without it)");
                 }
             }
         }
