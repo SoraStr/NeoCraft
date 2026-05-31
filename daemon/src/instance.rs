@@ -29,6 +29,7 @@ pub enum ServerType {
 pub struct Instance {
     pub id: String,
     pub name: String,
+    #[serde(rename = "type", alias = "server_type")]
     pub server_type: ServerType,
     pub version: String,
     pub port: u16,
