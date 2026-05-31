@@ -4,7 +4,7 @@ use neocraft_daemon::instance::{InstanceManager, InstanceError, ServerType};
 use neocraft_daemon::protocol::{Request, Response, Method, Error as ProtoError};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 use async_trait::async_trait;
 
 fn resolve_path(path: &str) -> PathBuf {
@@ -27,13 +27,13 @@ struct Cli {
 }
 
 struct DaemonHandler {
-    manager: Mutex<InstanceManager>,
+    manager: InstanceManager,
 }
 
 #[async_trait]
 impl RequestHandler for DaemonHandler {
     async fn handle(&self, request: Request) -> Response {
-        let mut manager = self.manager.lock().await;
+        let manager = &self.manager;
         let id = request.id.clone();
 
         match request.method {
@@ -109,10 +109,10 @@ impl RequestHandler for DaemonHandler {
                 }
             }
             Method::ConfigGet => {
-                handle_config_get(&mut *manager, &request).await
+                handle_config_get(manager, &request).await
             }
             Method::ConfigSet => {
-                handle_config_set(&mut *manager, &request).await
+                handle_config_set(manager, &request).await
             }
             _ => Response {
                 id,
@@ -130,7 +130,7 @@ fn error_response(code: &str, e: &InstanceError) -> ProtoError {
     ProtoError { code: code.into(), message: e.to_string() }
 }
 
-async fn handle_config_get(manager: &mut InstanceManager, request: &Request) -> Response {
+async fn handle_config_get(manager: &InstanceManager, request: &Request) -> Response {
     let instance_id = request.params["instance_id"].as_str().unwrap_or("");
     if let Some(instance) = manager.get(instance_id).await {
         let props_path = instance.work_dir.join("server.properties");
@@ -160,7 +160,7 @@ async fn handle_config_get(manager: &mut InstanceManager, request: &Request) -> 
     }
 }
 
-async fn handle_config_set(manager: &mut InstanceManager, request: &Request) -> Response {
+async fn handle_config_set(manager: &InstanceManager, request: &Request) -> Response {
     let instance_id = request.params["instance_id"].as_str().unwrap_or("");
     if let Some(instance) = manager.get(instance_id).await {
         let props_obj = match request.params["properties"].as_object() {
@@ -230,9 +230,7 @@ async fn main() {
     let manager = InstanceManager::new(data_dir, event_tx.clone());
 
     // Create handler
-    let handler = Arc::new(DaemonHandler {
-        manager: Mutex::new(manager),
-    });
+    let handler = Arc::new(DaemonHandler { manager });
 
     // Create IPC server with shared event channel so download progress
     // and state changes are forwarded to connected clients

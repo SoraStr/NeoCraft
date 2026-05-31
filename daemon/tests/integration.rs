@@ -15,14 +15,14 @@ fn temp_socket_path() -> PathBuf {
 }
 
 struct DaemonHandler {
-    instance_manager: tokio::sync::Mutex<InstanceManager>,
+    instance_manager: InstanceManager,
     event_tx: broadcast::Sender<Event>,
 }
 
 #[async_trait]
 impl RequestHandler for DaemonHandler {
     async fn handle(&self, request: Request) -> Response {
-        let mut manager = self.instance_manager.lock().await;
+        let manager = &self.instance_manager;
         match request.method {
             Method::InstanceStart => {
                 let id = request.params["id"].as_str().unwrap_or("");
@@ -163,7 +163,7 @@ async fn test_full_ipc_lifecycle() {
     let (event_tx, _) = broadcast::channel(256);
 
     // Create InstanceManager
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx.clone());
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx.clone());
 
     // Create an instance
     let instance = manager
@@ -174,7 +174,7 @@ async fn test_full_ipc_lifecycle() {
 
     // Set up handler
     let handler = Arc::new(DaemonHandler {
-        instance_manager: tokio::sync::Mutex::new(manager),
+        instance_manager: manager,
         event_tx: event_tx.clone(),
     });
 

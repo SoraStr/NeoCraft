@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use crate::affinity;
 use crate::downloader::CacheInfo;
 use crate::logpipe::LogPipe;
@@ -50,7 +50,7 @@ pub struct InstanceManager {
     instances_dir: PathBuf,
     instances: Arc<RwLock<HashMap<String, Instance>>>,
     event_tx: broadcast::Sender<Event>,
-    children: HashMap<String, (Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>, Arc<AtomicBool>)>,
+    children: Mutex<HashMap<String, (Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>, Arc<AtomicBool>)>>,
 }
 
 impl InstanceManager {
@@ -103,7 +103,7 @@ impl InstanceManager {
             instances_dir,
             instances,
             event_tx,
-            children: HashMap::new(),
+            children: Mutex::new(HashMap::new()),
         }
     }
 
@@ -112,7 +112,7 @@ impl InstanceManager {
     /// Writes `eula.txt`, `server.properties`, and persists `instance.json` to
     /// `data_dir/instances/<id>/`.
     pub async fn create(
-        &mut self,
+        &self,
         name: String,
         server_type: ServerType,
         version: String,
@@ -201,7 +201,7 @@ impl InstanceManager {
     }
 
     /// Directly update an instance's state (for testing).
-    pub async fn force_state(&mut self, id: &str, state: InstanceState) -> Result<(), InstanceError> {
+    pub async fn force_state(&self, id: &str, state: InstanceState) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
         match map.get_mut(id) {
             Some(inst) => {
@@ -214,7 +214,7 @@ impl InstanceManager {
 
     /// Update instance-level config fields (cpu_affinity, java_args) and persist to disk.
     pub async fn update_config(
-        &mut self,
+        &self,
         id: &str,
         cpu_affinity: Option<String>,
         java_args: Option<String>,
@@ -234,7 +234,7 @@ impl InstanceManager {
     }
 
     /// Deletes a stopped instance and removes its directory from disk.
-    pub async fn delete(&mut self, id: &str) -> Result<(), InstanceError> {
+    pub async fn delete(&self, id: &str) -> Result<(), InstanceError> {
         let instance = {
             let map = self.instances.read().await;
             map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?.clone()
@@ -255,7 +255,7 @@ impl InstanceManager {
     }
 
     /// Start an instance. Ensures EULA is accepted before spawning the process.
-    pub async fn start(&mut self, id: &str) -> Result<(), InstanceError> {
+    pub async fn start(&self, id: &str) -> Result<(), InstanceError> {
         let (jar_path, work_dir, server_type, java_args, cpu_affinity) = {
             let map = self.instances.read().await;
             let inst = map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
@@ -302,7 +302,7 @@ impl InstanceManager {
 
     /// Low-level process spawn with error capture.
     async fn start_process(
-        &mut self,
+        &self,
         id: &str,
         command: &str,
         args: &[&str],
@@ -356,7 +356,7 @@ impl InstanceManager {
         // Use Arc<Mutex<Option<Child>>> so the exit monitor and stop()
         // can coordinate: only one of them takes the child.
         let child_opt = Arc::new(tokio::sync::Mutex::new(Some(child)));
-        self.children.insert(id.to_string(), (child_opt.clone(), deliberate_stop.clone()));
+        self.children.lock().await.insert(id.to_string(), (child_opt.clone(), deliberate_stop.clone()));
 
         // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
         let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
@@ -406,7 +406,7 @@ impl InstanceManager {
     /// Stop a running instance by sending "stop\n" to its stdin.
     /// Waits for the process to exit (with a 60s timeout, then force-kill).
     /// No-op if the instance is not running.
-    pub async fn stop(&mut self, id: &str) -> Result<(), InstanceError> {
+    pub async fn stop(&self, id: &str) -> Result<(), InstanceError> {
         let state = {
             let map = self.instances.read().await;
             let instance = map
@@ -433,7 +433,7 @@ impl InstanceManager {
         });
 
         // Try to take the child and wait for it
-        if let Some((child_opt, stop_flag)) = self.children.remove(id) {
+        if let Some((child_opt, stop_flag)) = self.children.lock().await.remove(id) {
             // Set deliberate flag BEFORE trying to take the child so the
             // exit monitor knows this is a deliberate stop (even if it
             // already acquired the lock).
@@ -501,7 +501,7 @@ impl InstanceManager {
     }
 
     /// Restart an instance: stop it, then start it again.
-    pub async fn restart(&mut self, id: &str) -> Result<(), InstanceError> {
+    pub async fn restart(&self, id: &str) -> Result<(), InstanceError> {
         self.stop(id).await?;
         // Brief pause to let the OS reap the old process
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

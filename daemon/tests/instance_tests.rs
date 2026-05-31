@@ -13,7 +13,7 @@ fn setup() -> (TempDir, broadcast::Sender<Event>, broadcast::Receiver<Event>) {
 #[tokio::test]
 async fn test_create_instance_creates_directory_structure() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     let instance = manager.create(
         "Test Server".into(),
@@ -49,7 +49,7 @@ async fn test_create_instance_creates_directory_structure() {
 #[tokio::test]
 async fn test_create_instance_assigns_unique_ports() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     let i1 = manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let i2 = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into()).await.unwrap();
@@ -60,7 +60,7 @@ async fn test_create_instance_assigns_unique_ports() {
 #[tokio::test]
 async fn test_create_instance_duplicate_port_rejected() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let result = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await;
@@ -71,7 +71,7 @@ async fn test_create_instance_duplicate_port_rejected() {
 #[tokio::test]
 async fn test_list_instances() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     manager.create("S2".into(), ServerType::Vanilla, "1.21.0".into(), 25566, "".into()).await.unwrap();
@@ -83,7 +83,7 @@ async fn test_list_instances() {
 #[tokio::test]
 async fn test_get_instance_by_id() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     let created = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let found = manager.get(&created.id).await.unwrap();
@@ -100,7 +100,7 @@ async fn test_get_nonexistent_instance_returns_none() {
 #[tokio::test]
 async fn test_delete_instance_removes_directory() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     let created = manager.create("ToDelete".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&created.id);
@@ -116,7 +116,7 @@ async fn test_delete_running_instance_rejected() {
     // Skip for now — start/stop not implemented yet
     // This test validates future behavior
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let created = manager.create("Running".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     // Can't test rejection of running instance yet — manually set state to Running
     // This documents the expected behavior
@@ -127,7 +127,7 @@ async fn test_delete_running_instance_rejected() {
 #[tokio::test]
 async fn test_eula_accepted_by_default() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let eula = std::fs::read_to_string(work_dir.join("eula.txt")).unwrap();
@@ -137,7 +137,7 @@ async fn test_eula_accepted_by_default() {
 #[tokio::test]
 async fn test_server_properties_template_has_all_fields() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into()).await.unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let props = std::fs::read_to_string(work_dir.join("server.properties")).unwrap();
@@ -158,7 +158,7 @@ async fn test_server_properties_template_has_all_fields() {
 #[tokio::test]
 async fn test_jar_path_is_set_on_create() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     assert!(instance.jar_path.ends_with("server.jar"), "jar_path should point to server.jar");
     assert_eq!(instance.jar_path, instance.work_dir.join("server.jar"));
@@ -167,7 +167,7 @@ async fn test_jar_path_is_set_on_create() {
 #[tokio::test]
 async fn test_jar_path_persisted_in_instance_json() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let json_path = instance.work_dir.join("instance.json");
     let json_str = std::fs::read_to_string(&json_path).unwrap();
@@ -237,7 +237,7 @@ fn test_build_spigot_uses_aikar_flags() {
 #[tokio::test]
 async fn test_start_already_running_rejected() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     let id = instance.id.clone();
 
@@ -251,7 +251,7 @@ async fn test_start_already_running_rejected() {
 #[tokio::test]
 async fn test_stop_not_running_is_noop() {
     let (dir, event_tx, _) = setup();
-    let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
         .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
@@ -267,7 +267,7 @@ async fn test_instances_persist_across_restarts() {
 
     // Create two instances
     {
-        let mut manager = InstanceManager::new(data_dir.clone(), event_tx.clone());
+        let manager = InstanceManager::new(data_dir.clone(), event_tx.clone());
         manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
         manager.create("S2".into(), ServerType::Vanilla, "1.20.4".into(), 25566, "".into()).await.unwrap();
         let list = manager.list().await;
