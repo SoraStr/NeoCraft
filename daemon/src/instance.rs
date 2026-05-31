@@ -240,7 +240,11 @@ impl InstanceManager {
             map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?.clone()
         };
 
-        if instance.state != InstanceState::Stopped {
+        // Only block deletion if the server process is actively running
+        if instance.state == InstanceState::Running
+            || instance.state == InstanceState::Starting
+            || instance.state == InstanceState::Stopping
+        {
             return Err(InstanceError::NotStopped(id.into()));
         }
 
