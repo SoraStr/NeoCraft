@@ -259,11 +259,9 @@ impl InstanceManager {
         // Store child info for stop()
         self.children.insert(id.to_string(), (stdin, deliberate_stop.clone()));
 
-        // Pipe stdout/stderr to log events
-        let log_stdout = LogPipe::new(id.to_string(), self.event_tx.clone());
-        let log_stderr = LogPipe::new(id.to_string(), self.event_tx.clone());
-        tokio::spawn(async move { log_stdout.pipe_stdout(stdout).await; });
-        tokio::spawn(async move { log_stderr.pipe_stderr(stderr).await; });
+        // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
+        let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
+        tokio::spawn(async move { log_pipe.pipe_both(stdout, stderr).await; });
 
         // Wait for process exit with a short grace period to detect quick failures
         let id_clone = id.to_string();
