@@ -114,6 +114,14 @@ impl RequestHandler for DaemonHandler {
             Method::ConfigSet => {
                 handle_config_set(manager, &request).await
             }
+            Method::InstanceCommand => {
+                let inst_id = request.params["id"].as_str().unwrap_or("");
+                let cmd = request.params["command"].as_str().unwrap_or("");
+                match manager.send_command(inst_id, cmd).await {
+                    Ok(()) => Response { id, result: Some(serde_json::json!({"ok": true})), error: None },
+                    Err(e) => Response { id, result: None, error: Some(error_response("COMMAND_ERROR", &e)) },
+                }
+            }
             _ => Response {
                 id,
                 result: None,

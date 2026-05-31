@@ -134,6 +134,25 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
     }
   });
 
+  // Send command
+  app.post('/api/instances/:id/command', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
+      const { command } = (request.body || {}) as { command?: string };
+      if (!command) {
+        return reply.status(400).send({ error: 'Missing command.' });
+      }
+      const response = await ipcCall(ipc, 'instance.command', { id, command });
+      return { ok: true, ...(response.result as Record<string, unknown> || {}) };
+    } catch (err: any) {
+      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
+      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+    }
+  });
+
   // Restart instance
   app.post('/api/instances/:id/restart', async (request, reply) => {
     try {

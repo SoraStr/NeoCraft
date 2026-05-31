@@ -37,6 +37,8 @@ pub enum Method {
     MonitorSubscribe,
     #[serde(rename = "monitor.unsubscribe")]
     MonitorUnsubscribe,
+    #[serde(rename = "instance.command")]
+    InstanceCommand,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

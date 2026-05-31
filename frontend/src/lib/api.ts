@@ -74,6 +74,13 @@ export async function restartInstance(id: string): Promise<void> {
   return request<void>(`/instances/${id}/restart`, { method: 'POST' });
 }
 
+export async function sendCommand(id: string, command: string): Promise<void> {
+  return request<void>(`/instances/${id}/command`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  });
+}
+
 export async function getConfig(id: string): Promise<Record<string, string>> {
   return request<Record<string, string>>(`/instances/${id}/config`);
 }

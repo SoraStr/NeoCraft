@@ -50,6 +50,7 @@ pub struct InstanceManager {
     instances: Arc<RwLock<HashMap<String, Instance>>>,
     event_tx: broadcast::Sender<Event>,
     children: Mutex<HashMap<String, tokio::process::Child>>,
+    stdins: Mutex<HashMap<String, tokio::process::ChildStdin>>,
 }
 
 impl InstanceManager {
@@ -103,6 +104,7 @@ impl InstanceManager {
             instances,
             event_tx,
             children: Mutex::new(HashMap::new()),
+            stdins: Mutex::new(HashMap::new()),
         }
     }
 
@@ -350,9 +352,12 @@ impl InstanceManager {
             state: InstanceState::Running,
         });
 
-        // Store child handle so stop() can take it, send "stop\n", and wait for exit.
-        // No background monitor — stop() is the sole owner of process exit handling.
-        // Crash detection is done by a lightweight periodic liveness check.
+        // Take stdin out and store separately for send_command().
+        // Store child (minus stdin) for stop() to wait on.
+        let stdin = child.stdin.take();
+        if let Some(s) = stdin {
+            self.stdins.lock().await.insert(id.to_string(), s);
+        }
         self.children.lock().await.insert(id.to_string(), child);
 
         // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
@@ -363,6 +368,19 @@ impl InstanceManager {
         // If the process exits without stop() being called, the next state
         // query (list/get) will reflect the actual state from the OS.
 
+        Ok(())
+    }
+
+    /// Send an arbitrary command to the instance's stdin (e.g., "say Hello").
+    pub async fn send_command(&self, id: &str, command: &str) -> Result<(), InstanceError> {
+        let mut stdins = self.stdins.lock().await;
+        let stdin = stdins.get_mut(id)
+            .ok_or_else(|| InstanceError::NotFound(id.into()))?;
+        let mut line = command.to_string();
+        if !line.ends_with('\n') {
+            line.push('\n');
+        }
+        stdin.write_all(line.as_bytes()).await?;
         Ok(())
     }
 
@@ -395,13 +413,16 @@ impl InstanceManager {
             state: InstanceState::Stopping,
         });
 
-        // Take the child handle — stop() is the sole owner now
-        if let Some(mut child) = self.children.lock().await.remove(id) {
-            // Send stop command to the Minecraft server via stdin
-            if let Some(mut stdin) = child.stdin.take() {
+        // Take stdin and child handle — stop() is the sole owner now
+        // Send stop command via the separate stdin channel
+        {
+            let mut stdins = self.stdins.lock().await;
+            if let Some(mut stdin) = stdins.remove(id) {
                 let _ = stdin.write_all(b"stop\n").await;
             }
+        }
 
+        if let Some(mut child) = self.children.lock().await.remove(id) {
             // Wait for graceful exit with timeout
             match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
                 Ok(Ok(_)) => { /* clean exit */ }
