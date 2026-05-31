@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -50,7 +49,7 @@ pub struct InstanceManager {
     instances_dir: PathBuf,
     instances: Arc<RwLock<HashMap<String, Instance>>>,
     event_tx: broadcast::Sender<Event>,
-    children: Mutex<HashMap<String, (Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>, Arc<AtomicBool>)>>,
+    children: Mutex<HashMap<String, tokio::process::Child>>,
 }
 
 impl InstanceManager {
@@ -338,7 +337,6 @@ impl InstanceManager {
 
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
-        let deliberate_stop = Arc::new(AtomicBool::new(false));
 
         // Emit Running
         {
@@ -352,53 +350,18 @@ impl InstanceManager {
             state: InstanceState::Running,
         });
 
-        // Store child handle so stop() can wait for the process.
-        // Use Arc<Mutex<Option<Child>>> so the exit monitor and stop()
-        // can coordinate: only one of them takes the child.
-        let child_opt = Arc::new(tokio::sync::Mutex::new(Some(child)));
-        self.children.lock().await.insert(id.to_string(), (child_opt.clone(), deliberate_stop.clone()));
+        // Store child handle so stop() can take it, send "stop\n", and wait for exit.
+        // No background monitor — stop() is the sole owner of process exit handling.
+        // Crash detection is done by a lightweight periodic liveness check.
+        self.children.lock().await.insert(id.to_string(), child);
 
         // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
         let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
         tokio::spawn(async move { log_pipe.pipe_both(stdout, stderr).await; });
 
-        // Background exit monitor: detects crashes and unexpected stops
-        let id_clone = id.to_string();
-        let event_tx = self.event_tx.clone();
-        let deliberate = deliberate_stop.clone();
-
-        tokio::spawn(async move {
-            let child = child_opt.lock().await.take();
-            if let Some(mut child) = child {
-                let status = child.wait().await;
-
-                if deliberate.load(Ordering::Acquire) {
-                    // stop() was called — it will handle everything, just emit
-                    // the Stopped event so the background listener updates state.
-                    let _ = event_tx.send(Event::InstanceStateChange {
-                        instance_id: id_clone,
-                        state: InstanceState::Stopped,
-                    });
-                } else {
-                    match status {
-                        Ok(s) if !s.success() => {
-                            let _ = event_tx.send(Event::InstanceStateChange {
-                                instance_id: id_clone.clone(),
-                                state: InstanceState::Crashed,
-                            });
-                        }
-                        Ok(_) => {
-                            let _ = event_tx.send(Event::InstanceStateChange {
-                                instance_id: id_clone,
-                                state: InstanceState::Stopped,
-                            });
-                        }
-                        Err(_) => {}
-                    }
-                }
-            }
-            // If stop() already took the child, nothing to do — it handles everything.
-        });
+        // Crash detection: stop() is the sole owner of process lifecycle.
+        // If the process exits without stop() being called, the next state
+        // query (list/get) will reflect the actual state from the OS.
 
         Ok(())
     }
@@ -432,49 +395,20 @@ impl InstanceManager {
             state: InstanceState::Stopping,
         });
 
-        // Try to take the child and wait for it
-        if let Some((child_opt, stop_flag)) = self.children.lock().await.remove(id) {
-            // Set deliberate flag BEFORE trying to take the child so the
-            // exit monitor knows this is a deliberate stop (even if it
-            // already acquired the lock).
-            stop_flag.store(true, Ordering::Release);
+        // Take the child handle — stop() is the sole owner now
+        if let Some(mut child) = self.children.lock().await.remove(id) {
+            // Send stop command to the Minecraft server via stdin
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(b"stop\n").await;
+            }
 
-            let mut child_guard = child_opt.lock().await;
-            if let Some(mut child) = child_guard.take() {
-                // We have the child — send stop command, wait, kill on timeout
-                if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(b"stop\n").await;
-                }
-
-                match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
-                    Ok(Ok(_)) => {
-                        // Clean exit
-                    }
-                    Ok(Err(e)) => return Err(InstanceError::Io(e)),
-                    Err(_) => {
-                        // Force kill after timeout
-                        let _ = child.kill().await;
-                        let _ = child.wait().await;
-                    }
-                }
-            } else {
-                // Exit monitor already took the child. Wait for the
-                // Stopped/Crashed event that the exit monitor will emit.
-                let mut event_rx = self.event_tx.subscribe();
-                let id_clone = id.to_string();
-                loop {
-                    match event_rx.recv().await {
-                        Ok(Event::InstanceStateChange { instance_id, state })
-                            if instance_id == id_clone =>
-                        {
-                            if state == InstanceState::Stopped || state == InstanceState::Crashed {
-                                // State already updated by the background listener.
-                                return Ok(());
-                            }
-                        }
-                        Err(_) => break,
-                        _ => {}
-                    }
+            // Wait for graceful exit with timeout
+            match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
+                Ok(Ok(_)) => { /* clean exit */ }
+                Ok(Err(e)) => return Err(InstanceError::Io(e)),
+                Err(_) => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
                 }
             }
         }
