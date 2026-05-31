@@ -7,6 +7,10 @@ interface InstanceRouteOptions {
 
 const VALID_TYPES = ['vanilla', 'paper', 'spigot', 'fabric'];
 
+function validateId(id: string): boolean {
+  return /^[a-zA-Z0-9_-]+$/.test(id) && id.length <= 64;
+}
+
 /** Wrap IPC calls to catch connection errors and return 503 */
 async function ipcCall(
   ipc: IpcClient,
@@ -51,6 +55,16 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
         return reply.status(400).send({ error: `Invalid server type: ${type}. Must be one of: ${VALID_TYPES.join(', ')}` });
       }
 
+      // Validate name
+      if (name.length > 64 || !/^[a-zA-Z0-9一-鿿 _-]+$/.test(name)) {
+        return reply.status(400).send({ error: 'Invalid server name. Use letters, numbers, spaces, hyphens, underscores.' });
+      }
+
+      // Validate downloadUrl
+      if (downloadUrl && !downloadUrl.startsWith('https://')) {
+        return reply.status(400).send({ error: 'Download URL must use HTTPS.' });
+      }
+
       // Long timeout — daemon downloads the JAR during creation
       const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565, download_url: downloadUrl || '' }, 300000);
       return reply.status(201).send(response.result);
@@ -64,6 +78,9 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app.get('/api/instances/:id', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
       const response = await ipcCall(ipc, 'instance.get', { id });
       return response.result;
     } catch (err: any) {
@@ -76,6 +93,9 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app.delete('/api/instances/:id', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
       const response = await ipcCall(ipc, 'instance.delete', { id });
       return reply.status(204).send();
     } catch (err: any) {
@@ -88,6 +108,9 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app.post('/api/instances/:id/start', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
       const response = await ipcCall(ipc, 'instance.start', { id });
       return { ok: true, ...(response.result as Record<string, unknown> || {}) };
     } catch (err: any) {
@@ -100,6 +123,9 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app.post('/api/instances/:id/stop', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
       const response = await ipcCall(ipc, 'instance.stop', { id });
       return { ok: true, ...(response.result as Record<string, unknown> || {}) };
     } catch (err: any) {
@@ -112,6 +138,9 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app.post('/api/instances/:id/restart', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
       const response = await ipcCall(ipc, 'instance.restart', { id });
       return { ok: true, ...(response.result as Record<string, unknown> || {}) };
     } catch (err: any) {

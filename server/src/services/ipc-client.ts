@@ -34,6 +34,7 @@ export class IpcClient {
   private maxReconnectDelay = 30000;
   private shouldReconnect = true;
   private connecting = false;
+  private reconnectTimerActive = false;
 
   constructor(private socketPath: string) {}
 
@@ -59,7 +60,7 @@ export class IpcClient {
 
       this.socket.on('close', () => {
         this.connecting = false;
-        if (this.shouldReconnect) {
+        if (this.shouldReconnect && !this.reconnectTimerActive) {
           this.reconnect();
         }
       });
@@ -144,14 +145,13 @@ export class IpcClient {
 
   private reconnect(): void {
     if (!this.shouldReconnect || this.connecting) return;
-    this.cleanup(); // ensure old connection is fully released
-
+    this.cleanup();
+    this.reconnectTimerActive = true;
     setTimeout(() => {
+      this.reconnectTimerActive = false;
       this.connect().catch(() => {
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
       });
     }, this.reconnectDelay);
-
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
   }
 }

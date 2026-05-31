@@ -58,7 +58,9 @@ function spawnDaemon(socketPath: string): ChildProcess | null {
 export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   const server = Fastify({ logger: true });
 
-  await server.register(cors);
+  await server.register(cors, {
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
+  });
   await server.register(websocket);
 
   const socketPath = options.ipcSocketPath ||
@@ -88,8 +90,10 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
             daemonConnected = true;
             server.log.info('Daemon auto-started and connected');
             break;
-          } catch {
-            // still waiting
+          } catch (err: any) {
+            if (i === 19) {
+              server.log.warn(`Daemon still unreachable after 20 retries: ${err.message}`);
+            }
           }
         }
       }
@@ -105,7 +109,7 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
     });
 
     // Periodic health ping to detect disconnects
-    setInterval(async () => {
+    const healthTimer = setInterval(async () => {
       try {
         await ipc.request('instance.list', {}, { timeout: 2000 });
         if (!daemonConnected) {
@@ -119,6 +123,11 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
         }
       }
     }, 5000);
+
+    server.addHook('onClose', async () => {
+      clearInterval(healthTimer);
+      await ipc.disconnect();
+    });
   }
 
   // WebSocket endpoint

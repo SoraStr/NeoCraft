@@ -42,7 +42,10 @@ export const configRoutes: FastifyPluginAsync<ConfigRouteOptions> = async (
     });
 
     if (response.error) {
-      return reply.status(404).send({ error: response.error.message });
+      if (response.error.code === 'NOT_FOUND') {
+        return reply.status(404).send({ error: response.error.message });
+      }
+      return reply.status(500).send({ error: response.error.message });
     }
 
     return { ok: true, ...(response.result as Record<string, unknown> || {}) };
