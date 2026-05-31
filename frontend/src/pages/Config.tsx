@@ -95,8 +95,13 @@ export default function Config() {
   const merged = { ...properties, ...edited };
   const hasChanges = Object.keys(edited).length > 0 || removed.size > 0;
 
+  // Instance-level config keys (stored in instance.json, not server.properties)
+  const INSTANCE_KEYS = new Set(['cpu_affinity', 'java_args']);
+
   // Group properties by section (based on comments in the template)
-  const visibleEntries = Object.entries(merged).filter(([key]) => !removed.has(key));
+  const visibleEntries = Object.entries(merged).filter(
+    ([key]) => !removed.has(key) && !INSTANCE_KEYS.has(key)
+  );
 
   if (!instance) {
     return (
@@ -146,6 +151,35 @@ export default function Config() {
         </div>
       ) : (
         <>
+          {/* Instance-level settings (not stored in server.properties) */}
+          {!removed.has('cpu_affinity') && (
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <label className="block text-xs text-blue-400 font-medium mb-1">{t('config.cpuAffinity')}</label>
+              <input
+                type="text"
+                value={merged['cpu_affinity'] ?? ''}
+                onChange={(e) => handleChange('cpu_affinity', e.target.value)}
+                placeholder="e.g. 0-3 or 0,2,4"
+                className="w-full p-1.5 rounded bg-gray-800 border border-gray-700 text-sm font-mono outline-none focus:border-blue-500 text-gray-300"
+                spellCheck={false}
+              />
+              <p className="text-xs text-gray-500 mt-1">{t('config.cpuAffinityHint')}</p>
+            </div>
+          )}
+          {!removed.has('java_args') && (
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <label className="block text-xs text-blue-400 font-medium mb-1">{t('config.javaArgs')}</label>
+              <input
+                type="text"
+                value={merged['java_args'] ?? ''}
+                onChange={(e) => handleChange('java_args', e.target.value)}
+                placeholder="-Xmx2G -Xms1G"
+                className="w-full p-1.5 rounded bg-gray-800 border border-gray-700 text-sm font-mono outline-none focus:border-blue-500 text-gray-300"
+                spellCheck={false}
+              />
+            </div>
+          )}
+
           <div className="space-y-1 mb-4">
             {visibleEntries.map(([key, value]) => (
               <div

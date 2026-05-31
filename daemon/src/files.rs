@@ -44,6 +44,7 @@ max-tick-time=60000
 network-compression-threshold=256
 sync-chunk-writes=true
 use-native-transport=true
+# cpu-affinity=
 # ========== 聊天与信息 ==========
 motd={motd}
 announce-advancements=true

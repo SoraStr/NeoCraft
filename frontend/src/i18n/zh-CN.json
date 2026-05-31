@@ -112,7 +112,10 @@
     "undoRemove": "撤销",
     "propertyName": "属性名",
     "value": "值",
-    "loading": "正在加载配置..."
+    "loading": "正在加载配置...",
+    "cpuAffinity": "CPU 亲和性 (如 0-3 或 0,2,4)",
+    "cpuAffinityHint": "留空表示使用所有 CPU 核心。示例: 0-3 表示绑定核心 0,1,2,3",
+    "javaArgs": "Java 参数"
   },
   "serverTypes": {
     "paper": "Paper",

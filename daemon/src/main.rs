@@ -135,11 +135,16 @@ async fn handle_config_get(manager: &mut InstanceManager, request: &Request) -> 
     if let Some(instance) = manager.get(instance_id).await {
         let props_path = instance.work_dir.join("server.properties");
         match neocraft_daemon::files::read_properties(&props_path).await {
-            Ok(props) => Response {
-                id: request.id.clone(),
-                result: Some(serde_json::to_value(props).unwrap()),
-                error: None,
-            },
+            Ok(mut props) => {
+                // Include instance-level config fields not stored in server.properties
+                props.insert("cpu_affinity".to_string(), instance.cpu_affinity.clone());
+                props.insert("java_args".to_string(), instance.java_args.clone());
+                Response {
+                    id: request.id.clone(),
+                    result: Some(serde_json::to_value(props).unwrap()),
+                    error: None,
+                }
+            }
             Err(e) => Response {
                 id: request.id.clone(),
                 result: None,
@@ -167,8 +172,26 @@ async fn handle_config_set(manager: &mut InstanceManager, request: &Request) -> 
             },
         };
         let mut props = std::collections::HashMap::new();
+        let mut cpu_affinity: Option<String> = None;
+        let mut java_args: Option<String> = None;
         for (k, v) in props_obj {
-            props.insert(k.clone(), v.as_str().unwrap_or("").to_string());
+            let val = v.as_str().unwrap_or("").to_string();
+            match k.as_str() {
+                // Instance-level fields — save to Instance, not server.properties
+                "cpu_affinity" => cpu_affinity = Some(val),
+                "java_args" => java_args = Some(val),
+                _ => { props.insert(k.clone(), val); }
+            }
+        }
+        // Persist instance-level config to Instance if changed
+        if cpu_affinity.is_some() || java_args.is_some() {
+            if let Err(e) = manager.update_config(&instance_id, cpu_affinity, java_args).await {
+                return Response {
+                    id: request.id.clone(),
+                    result: None,
+                    error: Some(ProtoError { code: "CONFIG_ERROR".into(), message: e.to_string() }),
+                };
+            }
         }
         let props_path = instance.work_dir.join("server.properties");
         match neocraft_daemon::files::write_properties(&props_path, &props).await {

@@ -112,7 +112,10 @@
     "undoRemove": "元に戻す",
     "propertyName": "プロパティ名",
     "value": "値",
-    "loading": "設定を読み込み中..."
+    "loading": "設定を読み込み中...",
+    "cpuAffinity": "CPU アフィニティ (例: 0-3 または 0,2,4)",
+    "cpuAffinityHint": "空の場合は全 CPU コアを使用。例: 0-3 はコア 0,1,2,3 にバインド",
+    "javaArgs": "Java 引数"
   },
   "serverTypes": {
     "paper": "Paper",

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, RwLock};
+use crate::affinity;
 use crate::downloader::CacheInfo;
 use crate::logpipe::LogPipe;
 use crate::protocol::{Event, InstanceState};
@@ -35,6 +36,9 @@ pub struct Instance {
     pub jar_path: PathBuf,
     pub state: InstanceState,
     pub java_args: String,
+    /// CPU affinity mask: e.g. "0,1,2,3" or "0-3". Empty string means no affinity.
+    #[serde(default)]
+    pub cpu_affinity: String,
     pub created_at: String, // ISO 8601
     pub download_url: String,
 }
@@ -150,6 +154,7 @@ impl InstanceManager {
             jar_path,
             state: InstanceState::Stopped,
             java_args: "-Xmx2G -Xms1G".into(),
+            cpu_affinity: String::new(),
             created_at: chrono::Utc::now().to_rfc3339(),
             download_url,
         };
@@ -184,6 +189,27 @@ impl InstanceManager {
         }
     }
 
+    /// Update instance-level config fields (cpu_affinity, java_args) and persist to disk.
+    pub async fn update_config(
+        &mut self,
+        id: &str,
+        cpu_affinity: Option<String>,
+        java_args: Option<String>,
+    ) -> Result<(), InstanceError> {
+        let mut map = self.instances.write().await;
+        let inst = map.get_mut(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
+        if let Some(a) = cpu_affinity {
+            inst.cpu_affinity = a;
+        }
+        if let Some(j) = java_args {
+            inst.java_args = j;
+        }
+        // Persist updated instance to disk
+        let json = serde_json::to_string_pretty(&*inst)?;
+        tokio::fs::write(inst.work_dir.join("instance.json"), json).await?;
+        Ok(())
+    }
+
     /// Deletes a stopped instance and removes its directory from disk.
     pub async fn delete(&mut self, id: &str) -> Result<(), InstanceError> {
         let instance = {
@@ -203,13 +229,13 @@ impl InstanceManager {
 
     /// Start an instance. Ensures EULA is accepted before spawning the process.
     pub async fn start(&mut self, id: &str) -> Result<(), InstanceError> {
-        let (jar_path, work_dir, server_type, java_args) = {
+        let (jar_path, work_dir, server_type, java_args, cpu_affinity) = {
             let map = self.instances.read().await;
             let inst = map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
             if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
-            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone())
+            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone(), inst.cpu_affinity.clone())
         };
 
         // Emit Starting
@@ -244,7 +270,7 @@ impl InstanceManager {
         let (java_bin, java_args_vec) = build_java_command(&jar_path, &server_type, &java_args);
         let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
 
-        self.start_process(id, &java_bin, &args_refs).await
+        self.start_process(id, &java_bin, &args_refs, &cpu_affinity).await
     }
 
     /// Low-level process spawn with error capture.
@@ -253,6 +279,7 @@ impl InstanceManager {
         id: &str,
         command: &str,
         args: &[&str],
+        cpu_affinity: &str,
     ) -> Result<(), InstanceError> {
         let work_dir = {
             let map = self.instances.read().await;
@@ -271,6 +298,16 @@ impl InstanceManager {
         cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn()?;
+
+        // Set CPU affinity if configured (macOS only; no-op elsewhere)
+        if !cpu_affinity.is_empty() {
+            if let Some(pid) = child.id() {
+                if let Err(e) = affinity::set_process_affinity(pid, cpu_affinity) {
+                    tracing::warn!(instance_id = %id, error = %e, "Failed to set CPU affinity");
+                }
+            }
+        }
+
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
         let deliberate_stop = Arc::new(AtomicBool::new(false));
