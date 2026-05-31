@@ -1,6 +1,7 @@
 //! Log pipeline — capture stdout/stderr from the Minecraft process and emit log events.
 
 use crate::protocol::Event;
+use std::collections::VecDeque;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{ChildStderr, ChildStdout};
 use tokio::sync::broadcast;
@@ -24,31 +25,26 @@ impl LogPipe {
     }
 
     /// Merge stdout and stderr into a single event stream, avoiding duplicates.
-    /// Uses a small dedup window to suppress identical lines that appear on both streams
-    /// within a short time window (common with Minecraft/Java process output).
+    /// Keeps a ring buffer of recent lines (across both streams) to suppress
+    /// duplicates that appear on stdout + stderr with arbitrary interleaving.
     pub async fn pipe_both(self, stdout: ChildStdout, stderr: ChildStderr) {
         let mut stdout_lines = BufReader::new(stdout).lines();
         let mut stderr_lines = BufReader::new(stderr).lines();
-        let mut last_line: String = String::new();
-        let mut last_time: std::time::Instant = std::time::Instant::now();
+        let mut recent: VecDeque<String> = VecDeque::with_capacity(16);
 
         loop {
             tokio::select! {
                 result = stdout_lines.next_line() => {
                     match result {
-                        Ok(Some(line)) => {
-                            Self::emit(&self, &line, &mut last_line, &mut last_time);
-                        }
-                        Ok(None) => break, // stdout closed
+                        Ok(Some(line)) => Self::emit_dedup(&self, line, &mut recent),
+                        Ok(None) => break,
                         Err(_) => break,
                     }
                 }
                 result = stderr_lines.next_line() => {
                     match result {
-                        Ok(Some(line)) => {
-                            Self::emit(&self, &line, &mut last_line, &mut last_time);
-                        }
-                        Ok(None) => break, // stderr closed
+                        Ok(Some(line)) => Self::emit_dedup(&self, line, &mut recent),
+                        Ok(None) => break,
                         Err(_) => break,
                     }
                 }
@@ -56,18 +52,18 @@ impl LogPipe {
         }
     }
 
-    /// Emit a log line, suppressing duplicates that appear within 50ms on both streams.
-    fn emit(&self, line: &str, last_line: &mut String, last_time: &mut std::time::Instant) {
-        let now = std::time::Instant::now();
-        // If this is the same line as the last one, and within 50ms, skip as duplicate
-        if line == last_line.as_str() && now.duration_since(*last_time).as_millis() < 50 {
+    fn emit_dedup(&self, line: String, recent: &mut VecDeque<String>) {
+        // Skip if this exact line appeared recently (within the last 16 lines)
+        if recent.contains(&line) {
             return;
         }
-        *last_line = line.to_string();
-        *last_time = now;
+        if recent.len() >= 16 {
+            recent.pop_front();
+        }
+        recent.push_back(line.clone());
         let _ = self.event_tx.send(Event::InstanceLog {
             instance_id: self.instance_id.clone(),
-            line: line.to_string(),
+            line,
             timestamp: Self::timestamp(),
         });
     }
