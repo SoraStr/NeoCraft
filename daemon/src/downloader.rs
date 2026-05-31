@@ -46,7 +46,7 @@ pub async fn download_jar(
 
     // Ensure parent directory exists
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
     }
 
     let task_id = format!("download:{}", instance_id);
@@ -64,11 +64,15 @@ pub async fn download_jar(
         }
 
         // Ensure cache dir exists
-        std::fs::create_dir_all(&c.cache_dir)?;
+        tokio::fs::create_dir_all(&c.cache_dir).await?;
     }
 
     // ── Download ────────────────────────────────────────────────
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(DownloadError::Http)?;
     let response = client
         .get(url)
         .header("User-Agent", "NeoCraft/0.1")

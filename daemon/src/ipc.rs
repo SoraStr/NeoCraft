@@ -32,10 +32,10 @@ impl IpcServer {
         event_tx: broadcast::Sender<Event>,
     ) -> Result<Self, std::io::Error> {
         if socket_path.exists() {
-            std::fs::remove_file(&socket_path)?;
+            tokio::fs::remove_file(&socket_path).await?;
         }
         if let Some(parent) = socket_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
         let listener = UnixListener::bind(&socket_path)?;
         Ok(Self {
@@ -78,7 +78,7 @@ impl IpcServer {
         }
 
         // Cleanup
-        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = tokio::fs::remove_file(&self.socket_path).await;
         Ok(())
     }
 }

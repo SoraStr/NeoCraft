@@ -1,9 +1,8 @@
 //! File system operations — config templates, properties parsing.
 
 use std::collections::HashMap;
-use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 /// Generate a default server.properties content for a new instance.
 pub fn default_server_properties(port: u16, motd: &str) -> String {
@@ -77,13 +76,18 @@ pub fn eula_accepted() -> &'static str {
 
 /// Read a Java .properties file into a HashMap.
 /// Preserves only key-value pairs; comments and blank lines are not stored.
-pub fn read_properties(path: &Path) -> Result<HashMap<String, String>, std::io::Error> {
-    let file = fs::File::open(path)?;
+pub async fn read_properties(path: &Path) -> Result<HashMap<String, String>, std::io::Error> {
+    let file = tokio::fs::File::open(path).await?;
     let reader = BufReader::new(file);
+    let mut lines = reader.lines();
     let mut props = HashMap::new();
 
-    for line in reader.lines() {
-        let line = line?;
+    loop {
+        let line = match lines.next_line().await {
+            Ok(Some(l)) => l,
+            Ok(None) => break,
+            Err(e) => return Err(e),
+        };
         let trimmed = line.trim();
 
         // Skip comments and blank lines
@@ -106,11 +110,11 @@ pub fn read_properties(path: &Path) -> Result<HashMap<String, String>, std::io::
 
 /// Write a HashMap to a .properties file, preserving existing comments and structure.
 /// Keys that exist in the file are updated in-place; new keys are appended.
-pub fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<(), std::io::Error> {
+pub async fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<(), std::io::Error> {
     // Read original file lines to preserve comments and ordering
     let original_lines: Vec<String> = if path.exists() {
-        let file = fs::File::open(path)?;
-        BufReader::new(file).lines().collect::<Result<Vec<_>, _>>()?
+        let content = tokio::fs::read_to_string(path).await?;
+        content.lines().map(|s| s.to_string()).collect()
     } else {
         Vec::new()
     };
@@ -146,6 +150,6 @@ pub fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<
         }
     }
 
-    fs::write(path, output)?;
+    tokio::fs::write(path, output).await?;
     Ok(())
 }

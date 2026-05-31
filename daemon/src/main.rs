@@ -38,7 +38,7 @@ impl RequestHandler for DaemonHandler {
 
         match request.method {
             Method::InstanceList => {
-                let list = manager.list();
+                let list = manager.list().await;
                 let result: Vec<serde_json::Value> = list.iter()
                     .map(|i| serde_json::to_value(i).unwrap_or_default())
                     .collect();
@@ -47,7 +47,18 @@ impl RequestHandler for DaemonHandler {
             Method::InstanceCreate => {
                 let name = request.params["name"].as_str().unwrap_or("My Server").to_string();
                 let version = request.params["version"].as_str().unwrap_or("1.21.5").to_string();
-                let port = request.params["port"].as_u64().unwrap_or(25565) as u16;
+                let port_raw = request.params["port"].as_u64().unwrap_or(25565);
+                if port_raw > 65535 {
+                    return Response {
+                        id,
+                        result: None,
+                        error: Some(ProtoError {
+                            code: "INVALID_PORT".into(),
+                            message: "Port must be 0-65535".into(),
+                        }),
+                    };
+                }
+                let port = port_raw as u16;
                 let download_url = request.params["download_url"].as_str().unwrap_or("").to_string();
                 let st: ServerType = serde_json::from_value(request.params["type"].clone())
                     .unwrap_or(ServerType::Paper);
@@ -61,7 +72,7 @@ impl RequestHandler for DaemonHandler {
             }
             Method::InstanceGet => {
                 let inst_id = request.params["id"].as_str().unwrap_or("");
-                match manager.get(inst_id) {
+                match manager.get(inst_id).await {
                     Some(instance) => {
                         let result = serde_json::to_value(instance).unwrap_or_default();
                         Response { id, result: Some(result), error: None }
@@ -121,9 +132,9 @@ fn error_response(code: &str, e: &InstanceError) -> ProtoError {
 
 async fn handle_config_get(manager: &mut InstanceManager, request: &Request) -> Response {
     let instance_id = request.params["instance_id"].as_str().unwrap_or("");
-    if let Some(instance) = manager.get(instance_id) {
+    if let Some(instance) = manager.get(instance_id).await {
         let props_path = instance.work_dir.join("server.properties");
-        match neocraft_daemon::files::read_properties(&props_path) {
+        match neocraft_daemon::files::read_properties(&props_path).await {
             Ok(props) => Response {
                 id: request.id.clone(),
                 result: Some(serde_json::to_value(props).unwrap()),
@@ -146,7 +157,7 @@ async fn handle_config_get(manager: &mut InstanceManager, request: &Request) -> 
 
 async fn handle_config_set(manager: &mut InstanceManager, request: &Request) -> Response {
     let instance_id = request.params["instance_id"].as_str().unwrap_or("");
-    if let Some(instance) = manager.get(instance_id) {
+    if let Some(instance) = manager.get(instance_id).await {
         let props_obj = match request.params["properties"].as_object() {
             Some(obj) => obj,
             None => return Response {
@@ -160,7 +171,7 @@ async fn handle_config_set(manager: &mut InstanceManager, request: &Request) -> 
             props.insert(k.clone(), v.as_str().unwrap_or("").to_string());
         }
         let props_path = instance.work_dir.join("server.properties");
-        match neocraft_daemon::files::write_properties(&props_path, &props) {
+        match neocraft_daemon::files::write_properties(&props_path, &props).await {
             Ok(()) => Response { id: request.id.clone(), result: Some(serde_json::json!({"ok": true})), error: None },
             Err(e) => Response { id: request.id.clone(), result: None, error: Some(ProtoError { code: "CONFIG_ERROR".into(), message: e.to_string() }) },
         }
@@ -181,7 +192,7 @@ async fn main() {
     let data_dir = resolve_path(&cli.data_dir);
 
     // Create data directory
-    std::fs::create_dir_all(&data_dir).expect("failed to create data directory");
+    tokio::fs::create_dir_all(&data_dir).await.expect("failed to create data directory");
 
     tracing::info!(
         socket = %socket_path.display(),

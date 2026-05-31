@@ -76,7 +76,7 @@ async fn test_list_instances() {
     manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     manager.create("S2".into(), ServerType::Vanilla, "1.21.0".into(), 25566, "".into()).await.unwrap();
 
-    let list = manager.list();
+    let list = manager.list().await;
     assert_eq!(list.len(), 2);
 }
 
@@ -86,7 +86,7 @@ async fn test_get_instance_by_id() {
     let mut manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
     let created = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
-    let found = manager.get(&created.id).unwrap();
+    let found = manager.get(&created.id).await.unwrap();
     assert_eq!(found.name, "Test");
 }
 
@@ -94,7 +94,7 @@ async fn test_get_instance_by_id() {
 async fn test_get_nonexistent_instance_returns_none() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    assert!(manager.get("nonexistent").is_none());
+    assert!(manager.get("nonexistent").await.is_none());
 }
 
 #[tokio::test]
@@ -108,7 +108,7 @@ async fn test_delete_instance_removes_directory() {
 
     manager.delete(&created.id).await.unwrap();
     assert!(!work_dir.exists(), "work directory should be removed");
-    assert!(manager.get(&created.id).is_none());
+    assert!(manager.get(&created.id).await.is_none());
 }
 
 #[tokio::test]
@@ -120,7 +120,7 @@ async fn test_delete_running_instance_rejected() {
     let created = manager.create("Running".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
     // Can't test rejection of running instance yet — manually set state to Running
     // This documents the expected behavior
-    assert!(manager.get(&created.id).is_some());
+    assert!(manager.get(&created.id).await.is_some());
     // Future: manager.delete(&created.id).await should return Err
 }
 
@@ -242,10 +242,7 @@ async fn test_start_already_running_rejected() {
     let id = instance.id.clone();
 
     // Manually set state to Running to simulate an already-running instance
-    {
-        let inst = manager.get_mut(&id).unwrap();
-        inst.state = InstanceState::Running;
-    }
+    manager.force_state(&id, InstanceState::Running).await.unwrap();
 
     let result = manager.start(&id).await;
     assert!(result.is_err(), "starting an already-running instance should be rejected");

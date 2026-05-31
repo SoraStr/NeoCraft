@@ -80,9 +80,9 @@ impl RequestHandler for DaemonHandler {
             }
             Method::ConfigGet => {
                 let instance_id = request.params["instance_id"].as_str().unwrap_or("");
-                if let Some(instance) = manager.get(instance_id) {
+                if let Some(instance) = manager.get(instance_id).await {
                     let props_path = instance.work_dir.join("server.properties");
-                    match neocraft_daemon::files::read_properties(&props_path) {
+                    match neocraft_daemon::files::read_properties(&props_path).await {
                         Ok(props) => Response {
                             id: request.id,
                             result: Some(serde_json::to_value(props).unwrap()),
@@ -111,13 +111,14 @@ impl RequestHandler for DaemonHandler {
             Method::ConfigSet => {
                 let instance_id = request.params["instance_id"].as_str().unwrap_or("");
                 let properties = request.params["properties"].as_object();
-                if let (Some(instance), Some(props_obj)) = (manager.get(instance_id), properties) {
+                let instance_opt = manager.get(instance_id).await;
+                if let (Some(instance), Some(props_obj)) = (instance_opt.as_ref(), properties) {
                     let mut props = std::collections::HashMap::new();
                     for (k, v) in props_obj {
                         props.insert(k.clone(), v.as_str().unwrap_or("").to_string());
                     }
                     let props_path = instance.work_dir.join("server.properties");
-                    match neocraft_daemon::files::write_properties(&props_path, &props) {
+                    match neocraft_daemon::files::write_properties(&props_path, &props).await {
                         Ok(()) => Response {
                             id: request.id,
                             result: Some(serde_json::json!({"ok": true})),

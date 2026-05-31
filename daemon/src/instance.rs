@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use crate::downloader::CacheInfo;
 use crate::logpipe::LogPipe;
 use crate::protocol::{Event, InstanceState};
@@ -43,19 +43,38 @@ pub struct Instance {
 pub struct InstanceManager {
     data_dir: PathBuf,
     instances_dir: PathBuf,
-    instances: HashMap<String, Instance>,
+    instances: Arc<RwLock<HashMap<String, Instance>>>,
     event_tx: broadcast::Sender<Event>,
-    children: HashMap<String, (tokio::process::ChildStdin, Arc<AtomicBool>)>,
+    children: HashMap<String, (Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>, Arc<AtomicBool>)>,
 }
 
 impl InstanceManager {
     /// Create a new instance manager rooted at `data_dir`.
     pub fn new(data_dir: PathBuf, event_tx: broadcast::Sender<Event>) -> Self {
         let instances_dir = data_dir.join("instances");
+        let instances: Arc<RwLock<HashMap<String, Instance>>> = Arc::new(RwLock::new(HashMap::new()));
+
+        // Spawn a background task that listens for InstanceStateChange events
+        // and updates the in-memory instance state accordingly.
+        {
+            let instances_clone = Arc::clone(&instances);
+            let mut event_rx = event_tx.subscribe();
+            tokio::spawn(async move {
+                while let Ok(event) = event_rx.recv().await {
+                    if let Event::InstanceStateChange { instance_id, state } = event {
+                        let mut map = instances_clone.write().await;
+                        if let Some(inst) = map.get_mut(&instance_id) {
+                            inst.state = state;
+                        }
+                    }
+                }
+            });
+        }
+
         Self {
             data_dir,
             instances_dir,
-            instances: HashMap::new(),
+            instances,
             event_tx,
             children: HashMap::new(),
         }
@@ -74,9 +93,12 @@ impl InstanceManager {
         download_url: String,
     ) -> Result<Instance, InstanceError> {
         // Reject duplicate ports
-        for inst in self.instances.values() {
-            if inst.port == port {
-                return Err(InstanceError::PortInUse(port));
+        {
+            let map = self.instances.read().await;
+            for inst in map.values() {
+                if inst.port == port {
+                    return Err(InstanceError::PortInUse(port));
+                }
             }
         }
 
@@ -84,19 +106,19 @@ impl InstanceManager {
         let work_dir = self.instances_dir.join(&id);
 
         // Create directory structure
-        std::fs::create_dir_all(&work_dir)?;
+        tokio::fs::create_dir_all(&work_dir).await?;
 
         // Write eula.txt (accepted by default so the server can start)
-        std::fs::write(
+        tokio::fs::write(
             work_dir.join("eula.txt"),
             crate::files::eula_accepted(),
-        )?;
+        ).await?;
 
         // Write server.properties template
-        std::fs::write(
+        tokio::fs::write(
             work_dir.join("server.properties"),
             crate::files::default_server_properties(port, &name),
-        )?;
+        ).await?;
 
         let jar_path = work_dir.join("server.jar");
 
@@ -134,48 +156,56 @@ impl InstanceManager {
 
         // Persist instance state to disk
         let json = serde_json::to_string_pretty(&instance)?;
-        std::fs::write(instance.work_dir.join("instance.json"), json)?;
+        tokio::fs::write(instance.work_dir.join("instance.json"), json).await?;
 
-        self.instances.insert(instance.id.clone(), instance.clone());
+        self.instances.write().await.insert(instance.id.clone(), instance.clone());
         Ok(instance)
     }
 
-    /// Look up an instance by id.
-    pub fn get(&self, id: &str) -> Option<&Instance> {
-        self.instances.get(id)
+    /// Look up an instance by id (cloned).
+    pub async fn get(&self, id: &str) -> Option<Instance> {
+        self.instances.read().await.get(id).cloned()
     }
 
-    /// Look up an instance by id (mutable).
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut Instance> {
-        self.instances.get_mut(id)
+    /// Return all managed instances (cloned).
+    pub async fn list(&self) -> Vec<Instance> {
+        self.instances.read().await.values().cloned().collect()
     }
 
-    /// Return all managed instances.
-    pub fn list(&self) -> Vec<&Instance> {
-        self.instances.values().collect()
+    /// Directly update an instance's state (for testing).
+    pub async fn force_state(&mut self, id: &str, state: InstanceState) -> Result<(), InstanceError> {
+        let mut map = self.instances.write().await;
+        match map.get_mut(id) {
+            Some(inst) => {
+                inst.state = state;
+                Ok(())
+            }
+            None => Err(InstanceError::NotFound(id.into())),
+        }
     }
 
-    /// Delete a stopped instance and remove its directory from disk.
+    /// Deletes a stopped instance and removes its directory from disk.
     pub async fn delete(&mut self, id: &str) -> Result<(), InstanceError> {
-        let instance = self
-            .instances
-            .get(id)
-            .ok_or_else(|| InstanceError::NotFound(id.into()))?;
+        let instance = {
+            let map = self.instances.read().await;
+            map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?.clone()
+        };
 
         if instance.state != InstanceState::Stopped {
             return Err(InstanceError::NotStopped(id.into()));
         }
 
         let work_dir = instance.work_dir.clone();
-        std::fs::remove_dir_all(&work_dir)?;
-        self.instances.remove(id);
+        tokio::fs::remove_dir_all(&work_dir).await?;
+        self.instances.write().await.remove(id);
         Ok(())
     }
 
-    /// Start an instance. Handles EULA auto-accept on first launch.
+    /// Start an instance. Ensures EULA is accepted before spawning the process.
     pub async fn start(&mut self, id: &str) -> Result<(), InstanceError> {
         let (jar_path, work_dir, server_type, java_args) = {
-            let inst = self.instances.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
+            let map = self.instances.read().await;
+            let inst = map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
             if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
@@ -184,45 +214,37 @@ impl InstanceManager {
 
         // Emit Starting
         {
-            let inst = self.instances.get_mut(id).unwrap();
-            inst.state = InstanceState::Starting;
+            let mut map = self.instances.write().await;
+            if let Some(inst) = map.get_mut(id) {
+                inst.state = InstanceState::Starting;
+            }
         }
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Starting,
         });
 
-        // Ensure EULA is accepted
+        // Ensure EULA is accepted BEFORE spawning the process
         let eula_path = work_dir.join("eula.txt");
         if eula_path.exists() {
-            let content = std::fs::read_to_string(&eula_path).unwrap_or_default();
+            let content = tokio::fs::read_to_string(&eula_path).await.unwrap_or_default();
             if content.contains("eula=false") {
-                std::fs::write(&eula_path, content.replace("eula=false", "eula=true"))
+                tokio::fs::write(&eula_path, content.replace("eula=false", "eula=true"))
+                    .await
                     .map_err(|e| InstanceError::Io(e))?;
             }
         } else {
-            // EULA file doesn't exist yet — will be generated on first launch
-            // We'll detect the failure and auto-accept
+            // EULA file doesn't exist — create it with eula=true
+            tokio::fs::write(&eula_path, crate::files::eula_accepted())
+                .await
+                .map_err(|e| InstanceError::Io(e))?;
         }
 
         // Build and run the command
         let (java_bin, java_args_vec) = build_java_command(&jar_path, &server_type, &java_args);
         let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
 
-        let result = self.start_process(id, &java_bin, &args_refs).await;
-
-        // If failed with EULA error, accept EULA and retry once
-        if let Err(ref e) = result {
-            if let InstanceError::StartFailed(msg) = e {
-                if msg.contains("EULA") || msg.contains("eula") {
-                    // Accept EULA and retry
-                    let _ = std::fs::write(&eula_path, "eula=true\n");
-                    return self.start_process(id, &java_bin, &args_refs).await;
-                }
-            }
-        }
-
-        result
+        self.start_process(id, &java_bin, &args_refs).await
     }
 
     /// Low-level process spawn with error capture.
@@ -233,7 +255,8 @@ impl InstanceManager {
         args: &[&str],
     ) -> Result<(), InstanceError> {
         let work_dir = {
-            let inst = self.instances.get(id).unwrap();
+            let map = self.instances.read().await;
+            let inst = map.get(id).unwrap();
             inst.work_dir.clone()
         };
 
@@ -248,63 +271,80 @@ impl InstanceManager {
         cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn()?;
-        let stdin = child.stdin.take().expect("stdin pipe");
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
         let deliberate_stop = Arc::new(AtomicBool::new(false));
 
         // Emit Running
         {
-            let inst = self.instances.get_mut(id).unwrap();
-            inst.state = InstanceState::Running;
+            let mut map = self.instances.write().await;
+            if let Some(inst) = map.get_mut(id) {
+                inst.state = InstanceState::Running;
+            }
         }
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Running,
         });
 
-        // Store child info for stop()
-        self.children.insert(id.to_string(), (stdin, deliberate_stop.clone()));
+        // Store child handle so stop() can wait for the process.
+        // Use Arc<Mutex<Option<Child>>> so the exit monitor and stop()
+        // can coordinate: only one of them takes the child.
+        let child_opt = Arc::new(tokio::sync::Mutex::new(Some(child)));
+        self.children.insert(id.to_string(), (child_opt.clone(), deliberate_stop.clone()));
 
         // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
         let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
         tokio::spawn(async move { log_pipe.pipe_both(stdout, stderr).await; });
 
-        // Wait for process exit with a short grace period to detect quick failures
+        // Background exit monitor: detects crashes and unexpected stops
         let id_clone = id.to_string();
         let event_tx = self.event_tx.clone();
         let deliberate = deliberate_stop.clone();
 
         tokio::spawn(async move {
-            let status = child.wait().await;
-            if !deliberate.load(Ordering::Relaxed) {
-                match status {
-                    Ok(s) if !s.success() => {
-                        let _ = event_tx.send(Event::InstanceStateChange {
-                            instance_id: id_clone.clone(),
-                            state: InstanceState::Crashed,
-                        });
+            let child = child_opt.lock().await.take();
+            if let Some(mut child) = child {
+                let status = child.wait().await;
+
+                if deliberate.load(Ordering::Acquire) {
+                    // stop() was called — it will handle everything, just emit
+                    // the Stopped event so the background listener updates state.
+                    let _ = event_tx.send(Event::InstanceStateChange {
+                        instance_id: id_clone,
+                        state: InstanceState::Stopped,
+                    });
+                } else {
+                    match status {
+                        Ok(s) if !s.success() => {
+                            let _ = event_tx.send(Event::InstanceStateChange {
+                                instance_id: id_clone.clone(),
+                                state: InstanceState::Crashed,
+                            });
+                        }
+                        Ok(_) => {
+                            let _ = event_tx.send(Event::InstanceStateChange {
+                                instance_id: id_clone,
+                                state: InstanceState::Stopped,
+                            });
+                        }
+                        Err(_) => {}
                     }
-                    Ok(_) => {
-                        let _ = event_tx.send(Event::InstanceStateChange {
-                            instance_id: id_clone,
-                            state: InstanceState::Stopped,
-                        });
-                    }
-                    Err(_) => {}
                 }
             }
+            // If stop() already took the child, nothing to do — it handles everything.
         });
 
         Ok(())
     }
 
     /// Stop a running instance by sending "stop\n" to its stdin.
+    /// Waits for the process to exit (with a 60s timeout, then force-kill).
     /// No-op if the instance is not running.
     pub async fn stop(&mut self, id: &str) -> Result<(), InstanceError> {
         let state = {
-            let instance = self
-                .instances
+            let map = self.instances.read().await;
+            let instance = map
                 .get(id)
                 .ok_or_else(|| InstanceError::NotFound(id.into()))?;
             instance.state.clone()
@@ -317,27 +357,76 @@ impl InstanceManager {
 
         // Emit Stopping
         {
-            let instance = self.instances.get_mut(id).unwrap();
-            instance.state = InstanceState::Stopping;
+            let mut map = self.instances.write().await;
+            if let Some(inst) = map.get_mut(id) {
+                inst.state = InstanceState::Stopping;
+            }
         }
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Stopping,
         });
 
-        // Send "stop\n" to the process stdin if we have a handle
-        if let Some((mut stdin, stop_flag)) = self.children.remove(id) {
+        // Try to take the child and wait for it
+        if let Some((child_opt, stop_flag)) = self.children.remove(id) {
+            // Set deliberate flag BEFORE trying to take the child so the
+            // exit monitor knows this is a deliberate stop (even if it
+            // already acquired the lock).
             stop_flag.store(true, Ordering::Release);
-            let _ = stdin.write_all(b"stop\n").await;
-            // Dropping stdin signals EOF to the child
-            drop(stdin);
+
+            let mut child_guard = child_opt.lock().await;
+            if let Some(mut child) = child_guard.take() {
+                // We have the child — send stop command, wait, kill on timeout
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(b"stop\n").await;
+                }
+
+                match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
+                    Ok(Ok(_)) => {
+                        // Clean exit
+                    }
+                    Ok(Err(e)) => return Err(InstanceError::Io(e)),
+                    Err(_) => {
+                        // Force kill after timeout
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
+                    }
+                }
+            } else {
+                // Exit monitor already took the child. Wait for the
+                // Stopped/Crashed event that the exit monitor will emit.
+                let mut event_rx = self.event_tx.subscribe();
+                let id_clone = id.to_string();
+                loop {
+                    match event_rx.recv().await {
+                        Ok(Event::InstanceStateChange { instance_id, state })
+                            if instance_id == id_clone =>
+                        {
+                            if state == InstanceState::Stopped || state == InstanceState::Crashed {
+                                // State already updated by the background listener.
+                                return Ok(());
+                            }
+                        }
+                        Err(_) => break,
+                        _ => {}
+                    }
+                }
+            }
         }
 
-        // Emit Stopped
+        // Only set Stopped if WE waited for the process (i.e. we took the child).
+        // If the exit monitor took the child, it already handled the state change.
+        // Check if state is still Stopping — if so, we handled the exit.
         {
-            let instance = self.instances.get_mut(id).unwrap();
-            instance.state = InstanceState::Stopped;
+            let mut map = self.instances.write().await;
+            if let Some(inst) = map.get_mut(id) {
+                if inst.state == InstanceState::Stopping {
+                    inst.state = InstanceState::Stopped;
+                }
+            }
         }
+        // Still emit the event so the background listener picks it up
+        // (harmless if the exit monitor already emitted it).
         let _ = self.event_tx.send(Event::InstanceStateChange {
             instance_id: id.into(),
             state: InstanceState::Stopped,
@@ -414,6 +503,4 @@ pub enum InstanceError {
     Json(#[from] serde_json::Error),
     #[error("Download failed: {0}")]
     Download(String),
-    #[error("Start failed: {0}")]
-    StartFailed(String),
 }
