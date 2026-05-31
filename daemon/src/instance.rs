@@ -265,6 +265,7 @@ impl InstanceManager {
             if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
+            tracing::info!(instance_id = %id, cpu_affinity = %inst.cpu_affinity, "Starting instance with CPU affinity");
             (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone(), inst.cpu_affinity.clone())
         };
 
