@@ -3,33 +3,20 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
 import { useWebSocket } from '../hooks/useWebSocket';
-import type { IpcEvent } from '../lib/types';
 
 export default function Console() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { onEvent } = useWebSocket();
+  useWebSocket(); // ensures WebSocket provider context is active
   const instances = useInstanceStore((s) => s.instances);
   const logs = useInstanceStore((s) => s.logs);
-  const appendLog = useInstanceStore((s) => s.appendLog);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const instance = instances.find((i) => i.id === id);
   const instanceLogs = id ? logs[id] || [] : [];
 
-  useEffect(() => {
-    if (!id) return;
-    return onEvent((event: IpcEvent) => {
-      if (event.event === 'instance.log' && event.data.instance_id === id) {
-        appendLog(id, {
-          instanceId: id,
-          line: event.data.line as string,
-          timestamp: event.data.timestamp as number,
-        });
-      }
-    });
-  }, [id, onEvent, appendLog]);
+  // Logs are now captured globally in the WebSocketProvider (H9 fix)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

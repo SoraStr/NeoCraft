@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
@@ -26,6 +26,9 @@ export default function Setup() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // H10: AbortController ref to prevent race conditions in version fetching
+  const abortRef = useRef<AbortController | null>(null);
+
   const SERVER_TYPES = useMemo(() => [
     { value: 'paper' as ServerType, label: t('setup.paper'), desc: t('setup.paperDesc') },
     { value: 'vanilla' as ServerType, label: t('setup.vanilla'), desc: t('setup.vanillaDesc') },
@@ -48,15 +51,26 @@ export default function Setup() {
   }, [onEvent, setDownloadProgress]);
 
   const fetchVersions = async (type: ServerType) => {
+    // H10: Abort any in-flight fetch before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoadingVersions(true);
     setVersionError(null);
     try {
       const list = await getVersions(type);
-      setVersions(list);
+      if (!controller.signal.aborted) {
+        setVersions(list);
+      }
     } catch (err: unknown) {
-      setVersionError(err instanceof Error ? err.message : t('setup.fetchFailed'));
+      if (!controller.signal.aborted) {
+        setVersionError(err instanceof Error ? err.message : t('setup.fetchFailed'));
+      }
     } finally {
-      setLoadingVersions(false);
+      if (!controller.signal.aborted) {
+        setLoadingVersions(false);
+      }
     }
   };
 

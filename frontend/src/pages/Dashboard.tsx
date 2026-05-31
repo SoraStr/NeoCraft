@@ -6,43 +6,27 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
-import type { IpcEvent } from '../lib/types';
 
 export default function Dashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { wsConnected, daemonConnected, onEvent } = useWebSocket();
-  const {
-    instances, loading, error,
-    fetchInstances, startInstance, stopInstance, restartInstance,
-    updateInstanceState, updateStats, appendLog, selectedId, selectInstance,
-  } = useInstanceStore();
+  const { wsConnected, daemonConnected } = useWebSocket();
+
+  // H8: Use granular Zustand selectors to prevent excessive re-renders
+  const instances = useInstanceStore((s) => s.instances);
+  const loading = useInstanceStore((s) => s.loading);
+  const error = useInstanceStore((s) => s.error);
+  const selectedId = useInstanceStore((s) => s.selectedId);
+  const fetchInstances = useInstanceStore((s) => s.fetchInstances);
+  const startInstance = useInstanceStore((s) => s.startInstance);
+  const stopInstance = useInstanceStore((s) => s.stopInstance);
+  const restartInstance = useInstanceStore((s) => s.restartInstance);
+  const selectInstance = useInstanceStore((s) => s.selectInstance);
+  const stats = useInstanceStore((s) => s.stats);
 
   useEffect(() => {
     fetchInstances();
   }, [fetchInstances]);
-
-  useEffect(() => {
-    return onEvent((event: IpcEvent) => {
-      if (event.event === 'instance.state_change') {
-        updateInstanceState(event.data.instance_id as string, event.data.state as 'stopped' | 'starting' | 'running' | 'stopping' | 'crashed');
-      } else if (event.event === 'instance.stats') {
-        updateStats(event.data.instance_id as string, {
-          instanceId: event.data.instance_id as string,
-          cpuPercent: event.data.cpu_percent as number,
-          memoryMb: event.data.memory_mb as number,
-          uptimeSecs: event.data.uptime_secs as number,
-        });
-      } else if (event.event === 'instance.log') {
-        // Capture logs globally so Console page has history when opened
-        appendLog(event.data.instance_id as string, {
-          instanceId: event.data.instance_id as string,
-          line: event.data.line as string,
-          timestamp: event.data.timestamp as number,
-        });
-      }
-    });
-  }, [onEvent, updateInstanceState, updateStats, appendLog]);
 
   if (loading) return <LoadingSkeleton lines={3} />;
 
@@ -104,7 +88,7 @@ export default function Dashboard() {
       ) : (
         <div className="grid gap-4">
           {instances.map((inst) => {
-            const stats = useInstanceStore.getState().stats[inst.id];
+            const instStats = stats[inst.id];
             const stateColor = {
               running: 'text-green-400', stopped: 'text-gray-400',
               starting: 'text-yellow-400', stopping: 'text-yellow-400',
@@ -129,10 +113,10 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    {stats && (
+                    {instStats && (
                       <div className="text-right text-xs text-gray-400">
-                        <div>{t('dashboard.cpu')}: {stats.cpuPercent.toFixed(1)}%</div>
-                        <div>{t('dashboard.ram')}: {stats.memoryMb} MB</div>
+                        <div>{t('dashboard.cpu')}: {instStats.cpuPercent.toFixed(1)}%</div>
+                        <div>{t('dashboard.ram')}: {instStats.memoryMb} MB</div>
                       </div>
                     )}
                     <span className={`text-sm font-medium ${stateColor}`}>
