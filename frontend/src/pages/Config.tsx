@@ -4,8 +4,95 @@ import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
 import * as api from '../lib/api';
 
+const LABELS_ZH: Record<string, string> = {
+  'server-port': '服务器端口',
+  'server-ip': '绑定IP',
+  'max-players': '最大玩家数',
+  'online-mode': '正版验证',
+  'enable-query': '查询协议',
+  'enable-rcon': '远程控制台',
+  'rcon.port': 'RCON端口',
+  'rcon.password': 'RCON密码',
+  'gamemode': '默认游戏模式',
+  'difficulty': '难度',
+  'allow-nether': '允许下界',
+  'allow-end': '允许末地',
+  'spawn-monsters': '生成怪物',
+  'spawn-animals': '生成动物',
+  'spawn-npcs': '生成NPC',
+  'pvp': '玩家对战',
+  'force-gamemode': '强制游戏模式',
+  'allow-flight': '允许飞行',
+  'level-name': '世界名称',
+  'level-seed': '世界种子',
+  'generate-structures': '生成结构',
+  'max-world-size': '世界边界',
+  'level-type': '世界类型',
+  'generator-settings': '生成器设置',
+  'spawn-protection': '出生点保护',
+  'view-distance': '视距',
+  'simulation-distance': '模拟距离',
+  'entity-broadcast-range-percentage': '实体广播范围',
+  'max-tick-time': '最大Tick时间',
+  'network-compression-threshold': '网络压缩阈值',
+  'sync-chunk-writes': '同步区块写入',
+  'use-native-transport': '原生网络传输',
+  'motd': '服务器消息',
+  'announce-advancements': '广播成就',
+  'enable-status': '响应状态请求',
+  'broadcast-console-to-ops': '广播控制台到OP',
+  'broadcast-rcon-to-ops': '广播RCON到OP',
+  'op-permission-level': 'OP权限等级',
+  'function-permission-level': '函数权限等级',
+  'white-list': '白名单',
+  'enforce-whitelist': '强制白名单',
+  'enforce-secure-profile': '强制安全档案',
+  'prevent-proxy-connections': '阻止代理连接',
+  'resource-pack': '资源包URL',
+  'require-resource-pack': '强制资源包',
+  'text-filtering-config': '聊天过滤配置',
+  'snooper-enabled': '匿名数据发送',
+  'cpu-affinity': 'CPU核心绑定',
+  'java-args': 'JVM参数',
+};
+
+const LABELS_JA: Record<string, string> = {
+  'server-port': 'サーバーポート',
+  'max-players': '最大プレイヤー数',
+  'online-mode': '正規認証',
+  'motd': 'サーバーメッセージ',
+  'gamemode': 'ゲームモード',
+  'difficulty': '難易度',
+  'allow-nether': 'ネザー許可',
+  'allow-flight': '飛行許可',
+  'level-name': 'ワールド名',
+  'level-seed': 'ワールドシード',
+  'view-distance': '描画距離',
+  'simulation-distance': 'シミュレーション距離',
+  'pvp': 'PvP',
+  'white-list': 'ホワイトリスト',
+  'spawn-protection': 'スポーン保護',
+  'enable-rcon': 'RCON',
+  'rcon.port': 'RCONポート',
+  'rcon.password': 'RCONパスワード',
+  'generate-structures': '構造物生成',
+  'max-tick-time': '最大ティック時間',
+  'spawn-monsters': 'モンスター生成',
+  'spawn-animals': '動物生成',
+  'op-permission-level': 'OP権限レベル',
+  'enforce-whitelist': 'ホワイトリスト強制',
+  'resource-pack': 'リソースパックURL',
+  'cpu-affinity': 'CPUアフィニティ',
+  'java-args': 'JVM引数',
+};
+
+function getLabel(key: string, lang: string): string | null {
+  if (lang === 'ja') return LABELS_JA[key] || null;
+  return LABELS_ZH[key] || null;
+}
+
 export default function Config() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const instances = useInstanceStore((s) => s.instances);
@@ -196,10 +283,13 @@ export default function Config() {
                   ✕
                 </button>
                 <label
-                  className="w-56 text-xs text-gray-400 truncate flex-shrink-0 font-mono"
+                  className="w-56 text-xs truncate flex-shrink-0"
                   title={key}
                 >
-                  {key}
+                  <span className="font-mono text-gray-400">{key}</span>
+                  {getLabel(key, i18n.language) && (
+                    <span className="text-gray-500 ml-1">({getLabel(key, i18n.language)})</span>
+                  )}
                 </label>
                 <input
                   type="text"
