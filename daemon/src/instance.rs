@@ -55,9 +55,31 @@ pub struct InstanceManager {
 
 impl InstanceManager {
     /// Create a new instance manager rooted at `data_dir`.
+    /// Loads previously persisted instances from disk.
     pub fn new(data_dir: PathBuf, event_tx: broadcast::Sender<Event>) -> Self {
         let instances_dir = data_dir.join("instances");
         let instances: Arc<RwLock<HashMap<String, Instance>>> = Arc::new(RwLock::new(HashMap::new()));
+
+        // Load existing instances from disk
+        {
+            let mut map = HashMap::new();
+            if let Ok(entries) = std::fs::read_dir(&instances_dir) {
+                for entry in entries.flatten() {
+                    let instance_json = entry.path().join("instance.json");
+                    if let Ok(json) = std::fs::read_to_string(&instance_json) {
+                        if let Ok(mut instance) = serde_json::from_str::<Instance>(&json) {
+                            // Reset state — daemon just restarted, no processes are running
+                            instance.state = InstanceState::Stopped;
+                            map.insert(instance.id.clone(), instance);
+                        }
+                    }
+                }
+            }
+            // Use try_write to avoid deadlock in tests (tokio Runtime not yet running)
+            if let Ok(mut guard) = instances.try_write() {
+                *guard = map;
+            }
+        }
 
         // Spawn a background task that listens for InstanceStateChange events
         // and updates the in-memory instance state accordingly.

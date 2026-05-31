@@ -259,3 +259,29 @@ async fn test_stop_not_running_is_noop() {
     let result = manager.stop(&instance.id).await;
     assert!(result.is_ok());
 }
+
+#[tokio::test]
+async fn test_instances_persist_across_restarts() {
+    let (dir, event_tx, _) = setup();
+    let data_dir = dir.path().to_path_buf();
+
+    // Create two instances
+    {
+        let mut manager = InstanceManager::new(data_dir.clone(), event_tx.clone());
+        manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into()).await.unwrap();
+        manager.create("S2".into(), ServerType::Vanilla, "1.20.4".into(), 25566, "".into()).await.unwrap();
+        let list = manager.list().await;
+        assert_eq!(list.len(), 2);
+    }
+    // Manager dropped — simulates daemon restart
+
+    // Create a new manager pointing to the same data dir
+    {
+        let (new_tx, _) = broadcast::channel(256);
+        let manager2 = InstanceManager::new(data_dir.clone(), new_tx);
+        let list = manager2.list().await;
+        assert_eq!(list.len(), 2, "instances should be reloaded from disk");
+        assert_eq!(list[0].state, InstanceState::Stopped, "state should be reset to Stopped");
+        assert_eq!(list[1].state, InstanceState::Stopped);
+    }
+}
