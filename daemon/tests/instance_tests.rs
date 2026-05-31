@@ -285,3 +285,37 @@ async fn test_instances_persist_across_restarts() {
         assert_eq!(list[1].state, InstanceState::Stopped);
     }
 }
+
+#[tokio::test]
+async fn test_update_config_cpu_affinity_roundtrip() {
+    let (dir, event_tx, _) = setup();
+    let data_dir = dir.path().to_path_buf();
+    let manager = InstanceManager::new(data_dir.clone(), event_tx);
+
+    // Create instance with empty cpu_affinity
+    let instance = manager
+        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
+        .await
+        .unwrap();
+    assert_eq!(instance.cpu_affinity, "");
+
+    // Update cpu_affinity
+    manager
+        .update_config(&instance.id, Some("0-3".into()), None)
+        .await
+        .unwrap();
+
+    // Verify in-memory update
+    let updated = manager.get(&instance.id).await.unwrap();
+    assert_eq!(updated.cpu_affinity, "0-3", "cpu_affinity should be updated in memory");
+
+    // Verify disk persistence — read instance.json directly
+    let json = std::fs::read_to_string(updated.work_dir.join("instance.json")).unwrap();
+    assert!(json.contains("cpu_affinity") && json.contains("0-3"), "cpu_affinity should be persisted to disk, got: {}", json);
+
+    // Verify reload from disk
+    let (new_tx, _) = broadcast::channel(256);
+    let manager2 = InstanceManager::new(data_dir, new_tx);
+    let reloaded = manager2.get(&instance.id).await.unwrap();
+    assert_eq!(reloaded.cpu_affinity, "0-3", "cpu_affinity should survive daemon restart");
+}

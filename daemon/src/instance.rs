@@ -222,15 +222,17 @@ impl InstanceManager {
     ) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
         let inst = map.get_mut(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
-        if let Some(a) = cpu_affinity {
-            inst.cpu_affinity = a;
+        if let Some(ref a) = cpu_affinity {
+            tracing::info!(instance_id = %id, cpu_affinity = %a, "Updating instance CPU affinity");
+            inst.cpu_affinity = a.clone();
         }
-        if let Some(j) = java_args {
-            inst.java_args = j;
+        if let Some(ref j) = java_args {
+            inst.java_args = j.clone();
         }
         // Persist updated instance to disk
         let json = serde_json::to_string_pretty(&*inst)?;
         tokio::fs::write(inst.work_dir.join("instance.json"), json).await?;
+        tracing::info!(instance_id = %id, "Instance config persisted to disk");
         Ok(())
     }
 
