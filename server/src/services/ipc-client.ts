@@ -33,23 +33,32 @@ export class IpcClient {
   private reconnectDelay = 100;
   private maxReconnectDelay = 30000;
   private shouldReconnect = true;
+  private connecting = false;
 
   constructor(private socketPath: string) {}
 
   async connect(): Promise<void> {
+    // Clean up any previous connection first to prevent duplicate event processing
+    this.cleanup();
+    this.connecting = true;
+    this.shouldReconnect = true;
+
     return new Promise((resolve, reject) => {
       this.socket = createConnection(this.socketPath, () => {
         this.rl = createInterface({ input: this.socket!, crlfDelay: Infinity });
         this.rl.on('line', (line: string) => this.handleLine(line));
-        this.shouldReconnect = true;
+        this.connecting = false;
+        this.reconnectDelay = 100; // reset backoff on successful connection
         resolve();
       });
 
       this.socket.on('error', (err) => {
+        this.connecting = false;
         reject(err);
       });
 
       this.socket.on('close', () => {
+        this.connecting = false;
         if (this.shouldReconnect) {
           this.reconnect();
         }
@@ -57,11 +66,22 @@ export class IpcClient {
     });
   }
 
+  private cleanup(): void {
+    if (this.rl) {
+      this.rl.removeAllListeners();
+      this.rl.close();
+      this.rl = null;
+    }
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.destroy();
+      this.socket = null;
+    }
+  }
+
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
-    this.rl?.close();
-    this.socket?.destroy();
-    this.socket = null;
+    this.cleanup();
     // Reject all pending requests
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
@@ -123,7 +143,8 @@ export class IpcClient {
   }
 
   private reconnect(): void {
-    if (!this.shouldReconnect) return;
+    if (!this.shouldReconnect || this.connecting) return;
+    this.cleanup(); // ensure old connection is fully released
 
     setTimeout(() => {
       this.connect().catch(() => {
