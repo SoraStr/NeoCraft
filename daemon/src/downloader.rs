@@ -1,9 +1,8 @@
-//! Downloader — fetch Minecraft server JARs with progress reporting.
+//! Downloader — fetch Minecraft server JARs with progress reporting and cache.
 
 use crate::protocol::Event;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::sync::broadcast;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DownloadError {
@@ -17,13 +16,29 @@ pub enum DownloadError {
     BadStatus(u16),
 }
 
+/// Cache info for reusing downloaded JARs across instances.
+pub struct CacheInfo {
+    pub cache_dir: PathBuf,
+    pub server_type: String,
+    pub version: String,
+}
+
+impl CacheInfo {
+    /// Build the cached file path: {cache_dir}/{type}-{version}.jar
+    pub fn cached_path(&self) -> PathBuf {
+        self.cache_dir.join(format!("{}-{}.jar", self.server_type, self.version))
+    }
+}
+
 /// Download a JAR file with progress events emitted via broadcast channel.
-/// Returns the number of bytes written.
+/// If `cache` is provided, checks the cache first — reuses cached file if it exists.
+/// On fresh download, the file is downloaded to the cache first, then copied to dest.
 pub async fn download_jar(
     url: &str,
     dest: &Path,
     instance_id: &str,
     event_tx: &broadcast::Sender<Event>,
+    cache: Option<&CacheInfo>,
 ) -> Result<u64, DownloadError> {
     if url.is_empty() {
         return Err(DownloadError::EmptyUrl);
@@ -34,6 +49,25 @@ pub async fn download_jar(
         std::fs::create_dir_all(parent)?;
     }
 
+    let task_id = format!("download:{}", instance_id);
+
+    // ── Cache hit: copy from cache ──────────────────────────────
+    if let Some(c) = cache {
+        let cached = c.cached_path();
+        if cached.exists() {
+            let size = cached.metadata()?.len();
+            // Emit a quick 0→100 progress
+            let _ = event_tx.send(Event::DownloadProgress { task_id: task_id.clone(), downloaded: 0, total: size, percent: 0.0 });
+            tokio::fs::copy(&cached, dest).await?;
+            let _ = event_tx.send(Event::DownloadProgress { task_id: task_id.clone(), downloaded: size, total: size, percent: 100.0 });
+            return Ok(size);
+        }
+
+        // Ensure cache dir exists
+        std::fs::create_dir_all(&c.cache_dir)?;
+    }
+
+    // ── Download ────────────────────────────────────────────────
     let client = reqwest::Client::new();
     let response = client
         .get(url)
@@ -47,19 +81,21 @@ pub async fn download_jar(
 
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut file = tokio::fs::File::create(dest).await?;
 
+    // Determine the actual download target: cache file if provided, otherwise dest
+    let dl_target = if let Some(c) = cache {
+        c.cached_path()
+    } else {
+        dest.to_path_buf()
+    };
+
+    let mut file = tokio::fs::File::create(&dl_target).await?;
     let mut stream = response.bytes_stream();
     let mut last_emit = std::time::Instant::now();
-    let start = std::time::Instant::now();
-    let task_id = format!("download:{}", instance_id);
 
-    // Emit initial progress immediately so the UI shows the bar
+    // Emit initial progress
     let _ = event_tx.send(Event::DownloadProgress {
-        task_id: task_id.clone(),
-        downloaded: 0,
-        total,
-        percent: 0.0,
+        task_id: task_id.clone(), downloaded: 0, total, percent: 0.0,
     });
 
     use futures_util::StreamExt;
@@ -68,34 +104,67 @@ pub async fn download_jar(
         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
         downloaded += chunk.len() as u64;
 
-        // Emit progress every 100ms or on last chunk
         let now = std::time::Instant::now();
         let elapsed = now.duration_since(last_emit).as_millis();
-        let is_first = downloaded <= chunk.len() as u64; // first chunk
+        let is_first = downloaded <= chunk.len() as u64;
         if is_first || elapsed >= 100 {
             last_emit = now;
             let percent = if total > 0 {
                 (downloaded as f64 / total as f64) * 100.0
             } else {
-                // Unknown total — use elapsed time to give visual feedback (cap at 99%)
                 (elapsed as f64 / 30_000.0 * 100.0).min(99.0)
             };
             let _ = event_tx.send(Event::DownloadProgress {
-                task_id: task_id.clone(),
-                downloaded,
-                total,
-                percent,
+                task_id: task_id.clone(), downloaded, total, percent,
             });
         }
     }
 
-    // Final 100% event
+    // If downloaded to cache, copy to actual destination
+    if dl_target != *dest {
+        tokio::fs::copy(&dl_target, dest).await?;
+    }
+
+    // Final 100%
+    let final_total = if total == 0 { downloaded } else { total };
     let _ = event_tx.send(Event::DownloadProgress {
-        task_id: task_id.clone(),
-        downloaded,
-        total: if total == 0 { downloaded } else { total },
-        percent: 100.0,
+        task_id, downloaded, total: final_total, percent: 100.0,
     });
 
     Ok(downloaded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cache_path_format() {
+        let cache = CacheInfo {
+            cache_dir: PathBuf::from("/tmp/neocraft-cache"),
+            server_type: "paper".into(),
+            version: "1.21.5".into(),
+        };
+        assert_eq!(
+            cache.cached_path(),
+            PathBuf::from("/tmp/neocraft-cache/paper-1.21.5.jar")
+        );
+    }
+
+    #[test]
+    fn test_cache_path_with_different_types() {
+        let vanilla = CacheInfo {
+            cache_dir: PathBuf::from("/cache"),
+            server_type: "vanilla".into(),
+            version: "1.21.0".into(),
+        };
+        assert_eq!(vanilla.cached_path(), PathBuf::from("/cache/vanilla-1.21.0.jar"));
+
+        let fabric = CacheInfo {
+            cache_dir: PathBuf::from("/cache"),
+            server_type: "fabric".into(),
+            version: "1.20.4".into(),
+        };
+        assert_eq!(fabric.cached_path(), PathBuf::from("/cache/fabric-1.20.4.jar"));
+    }
 }

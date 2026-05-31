@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::broadcast;
+use crate::downloader::CacheInfo;
 use crate::logpipe::LogPipe;
 use crate::protocol::{Event, InstanceState};
 
@@ -101,11 +102,17 @@ impl InstanceManager {
 
         // Download the server JAR if a URL is provided (before persisting instance)
         if !download_url.is_empty() {
+            let cache = CacheInfo {
+                cache_dir: self.data_dir.join("cache"),
+                server_type: format!("{:?}", server_type).to_lowercase(),
+                version: version.clone(),
+            };
             crate::downloader::download_jar(
                 &download_url,
                 &jar_path,
                 &id,
                 &self.event_tx,
+                Some(&cache),
             )
             .await
             .map_err(|e| InstanceError::Download(e.to_string()))?;
