@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useInstanceStore } from '../stores/instanceStore';
@@ -21,8 +21,12 @@ export default function Dashboard() {
   const startInstance = useInstanceStore((s) => s.startInstance);
   const stopInstance = useInstanceStore((s) => s.stopInstance);
   const restartInstance = useInstanceStore((s) => s.restartInstance);
+  const deleteInstance = useInstanceStore((s) => s.deleteInstance);
   const selectInstance = useInstanceStore((s) => s.selectInstance);
   const stats = useInstanceStore((s) => s.stats);
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     fetchInstances();
@@ -162,6 +166,30 @@ export default function Dashboard() {
                     >
                       {t('nav.config')}
                     </button>
+                    {deleteConfirm === inst.id ? (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteInstance(inst.id); setDeleteConfirm(null); }}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
+                        >
+                          {t('dashboard.confirmDelete')}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null); }}
+                          className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                        >
+                          {t('dashboard.cancel')}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(inst.id); }}
+                        className="px-3 py-1 bg-red-600/50 hover:bg-red-600 rounded text-sm transition-colors"
+                        title={t('dashboard.delete')}
+                      >
+                        {t('dashboard.delete')}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
