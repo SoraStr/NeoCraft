@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, Mutex, RwLock};
-use crate::affinity;
 use crate::downloader::CacheInfo;
 use crate::logpipe::LogPipe;
 use crate::protocol::{Event, InstanceState};
@@ -318,27 +317,35 @@ impl InstanceManager {
             inst.work_dir.clone()
         };
 
-        let mut cmd = TokioCommand::new(command);
-        cmd.current_dir(&work_dir);
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        for arg in args {
-            cmd.arg(arg);
-        }
-        cmd.kill_on_drop(true);
-
-        let mut child = cmd.spawn()?;
-
-        // Set CPU affinity if configured (macOS only; no-op elsewhere)
-        if !cpu_affinity.is_empty() {
-            if let Some(pid) = child.id() {
-                if let Err(e) = affinity::set_process_affinity(pid, cpu_affinity) {
-                    tracing::info!(instance_id = %id, error = %e,
-                        "CPU affinity not available (requires SIP-disabled or root — server runs normally without it)");
-                }
+        // Build the command. If CPU affinity is set and cpuset is available,
+        // wrap with "cpuset -c <affinity> -- <original command>".
+        // cpuset can be installed via: brew install cpuset
+        let mut child = if !cpu_affinity.is_empty() && which::which("cpuset").is_ok() {
+            let mut wrapper = TokioCommand::new("cpuset");
+            wrapper.arg("-c").arg(cpu_affinity);
+            wrapper.arg("--");
+            wrapper.arg(command);
+            for arg in args { wrapper.arg(arg); }
+            wrapper.current_dir(&work_dir);
+            wrapper.stdin(Stdio::piped());
+            wrapper.stdout(Stdio::piped());
+            wrapper.stderr(Stdio::piped());
+            wrapper.kill_on_drop(true);
+            wrapper.spawn()?
+        } else {
+            if !cpu_affinity.is_empty() {
+                tracing::info!(instance_id = %id, cpu_affinity = %cpu_affinity,
+                    "cpuset not found — install with: brew install cpuset. CPU affinity skipped.");
             }
-        }
+            let mut cmd = TokioCommand::new(command);
+            cmd.current_dir(&work_dir);
+            cmd.stdin(Stdio::piped());
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+            for arg in args { cmd.arg(arg); }
+            cmd.kill_on_drop(true);
+            cmd.spawn()?
+        };
 
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
