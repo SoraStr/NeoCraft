@@ -56,7 +56,10 @@ function spawnDaemon(socketPath: string): ChildProcess | null {
 }
 
 export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
-  const server = Fastify({ logger: true });
+  const server = Fastify({
+    logger: true,
+    genReqId: () => `nc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+  });
 
   await server.register(cors, {
     origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
