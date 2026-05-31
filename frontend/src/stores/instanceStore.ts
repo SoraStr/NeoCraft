@@ -88,12 +88,19 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
   },
 
   appendLog: (instanceId, entry) => {
-    set((state) => ({
-      logs: {
-        ...state.logs,
-        [instanceId]: [...(state.logs[instanceId] || []), entry].slice(-1000), // keep last 1000 lines
-      },
-    }));
+    set((state) => {
+      const existing = state.logs[instanceId] || [];
+      // Skip if identical to the last line (dedup from any source)
+      if (existing.length > 0 && existing[existing.length - 1].line === entry.line) {
+        return state;
+      }
+      return {
+        logs: {
+          ...state.logs,
+          [instanceId]: [...existing, entry].slice(-1000),
+        },
+      };
+    });
   },
 
   updateStats: (instanceId, stats) => {
