@@ -1,5 +1,5 @@
 use std::path::Path;
-use neocraft_daemon::instance::{InstanceManager, ServerType, build_java_command};
+use neocraft_daemon::instance::{InstanceManager, ServerType, build_java_command, version_at_least};
 use neocraft_daemon::protocol::{Event, InstanceState};
 use tokio::sync::broadcast;
 use tempfile::TempDir;
@@ -287,35 +287,65 @@ async fn test_instances_persist_across_restarts() {
 }
 
 #[tokio::test]
-async fn test_update_config_cpu_affinity_roundtrip() {
+async fn test_update_config_java_args_roundtrip() {
     let (dir, event_tx, _) = setup();
     let data_dir = dir.path().to_path_buf();
     let manager = InstanceManager::new(data_dir.clone(), event_tx);
 
-    // Create instance with empty cpu_affinity
+    // Create instance with default java_args
     let instance = manager
         .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into())
         .await
         .unwrap();
-    assert_eq!(instance.cpu_affinity, "");
+    assert_eq!(instance.java_args, "-Xmx2G -Xms1G");
 
-    // Update cpu_affinity
+    // Update java_args
     manager
-        .update_config(&instance.id, Some("0-3".into()), None)
+        .update_config(&instance.id, Some("-Xmx4G -Xms2G".into()))
         .await
         .unwrap();
 
     // Verify in-memory update
     let updated = manager.get(&instance.id).await.unwrap();
-    assert_eq!(updated.cpu_affinity, "0-3", "cpu_affinity should be updated in memory");
+    assert_eq!(updated.java_args, "-Xmx4G -Xms2G", "java_args should be updated in memory");
 
     // Verify disk persistence — read instance.json directly
     let json = std::fs::read_to_string(updated.work_dir.join("instance.json")).unwrap();
-    assert!(json.contains("cpu_affinity") && json.contains("0-3"), "cpu_affinity should be persisted to disk, got: {}", json);
+    assert!(json.contains("java_args") && json.contains("4G"), "java_args should be persisted to disk, got: {}", json);
 
     // Verify reload from disk
     let (new_tx, _) = broadcast::channel(256);
     let manager2 = InstanceManager::new(data_dir, new_tx);
     let reloaded = manager2.get(&instance.id).await.unwrap();
-    assert_eq!(reloaded.cpu_affinity, "0-3", "cpu_affinity should survive daemon restart");
+    assert_eq!(reloaded.java_args, "-Xmx4G -Xms2G", "java_args should survive daemon restart");
+}
+
+#[test]
+fn test_version_at_least_exact_match() {
+    assert!(version_at_least("1.21.9", 1, 21, 9));
+}
+
+#[test]
+fn test_version_at_least_patch_greater() {
+    assert!(version_at_least("1.21.10", 1, 21, 9));
+}
+
+#[test]
+fn test_version_at_least_minor_less() {
+    assert!(!version_at_least("1.20.4", 1, 21, 9));
+}
+
+#[test]
+fn test_version_at_least_patch_less() {
+    assert!(!version_at_least("1.21.8", 1, 21, 9));
+}
+
+#[test]
+fn test_version_at_least_two_part_version() {
+    assert!(version_at_least("1.22", 1, 21, 9));
+}
+
+#[test]
+fn test_version_at_least_invalid() {
+    assert!(!version_at_least("invalid", 1, 21, 9));
 }

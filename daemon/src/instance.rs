@@ -35,9 +35,6 @@ pub struct Instance {
     pub jar_path: PathBuf,
     pub state: InstanceState,
     pub java_args: String,
-    /// CPU affinity mask: e.g. "0,1,2,3" or "0-3". Empty string means no affinity.
-    #[serde(default)]
-    pub cpu_affinity: String,
     pub created_at: String, // ISO 8601
     pub download_url: String,
 }
@@ -177,7 +174,6 @@ impl InstanceManager {
             jar_path,
             state: InstanceState::Stopped,
             java_args: "-Xmx2G -Xms1G".into(),
-            cpu_affinity: String::new(),
             created_at: chrono::Utc::now().to_rfc3339(),
             download_url,
         };
@@ -212,19 +208,14 @@ impl InstanceManager {
         }
     }
 
-    /// Update instance-level config fields (cpu_affinity, java_args) and persist to disk.
+    /// Update instance-level config fields (java_args) and persist to disk.
     pub async fn update_config(
         &self,
         id: &str,
-        cpu_affinity: Option<String>,
         java_args: Option<String>,
     ) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
         let inst = map.get_mut(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
-        if let Some(ref a) = cpu_affinity {
-            tracing::info!(instance_id = %id, cpu_affinity = %a, "Updating instance CPU affinity");
-            inst.cpu_affinity = a.clone();
-        }
         if let Some(ref j) = java_args {
             inst.java_args = j.clone();
         }
@@ -258,14 +249,13 @@ impl InstanceManager {
 
     /// Start an instance. Ensures EULA is accepted before spawning the process.
     pub async fn start(&self, id: &str) -> Result<(), InstanceError> {
-        let (jar_path, work_dir, server_type, java_args, cpu_affinity) = {
+        let (jar_path, work_dir, server_type, java_args) = {
             let map = self.instances.read().await;
             let inst = map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
             if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
-            tracing::info!(instance_id = %id, cpu_affinity = %inst.cpu_affinity, "Starting instance with CPU affinity");
-            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone(), inst.cpu_affinity.clone())
+            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone())
         };
 
         // Emit Starting
@@ -300,7 +290,7 @@ impl InstanceManager {
         let (java_bin, java_args_vec) = build_java_command(&jar_path, &server_type, &java_args);
         let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
 
-        self.start_process(id, &java_bin, &args_refs, &cpu_affinity).await
+        self.start_process(id, &java_bin, &args_refs).await
     }
 
     /// Low-level process spawn with error capture.
@@ -309,7 +299,6 @@ impl InstanceManager {
         id: &str,
         command: &str,
         args: &[&str],
-        cpu_affinity: &str,
     ) -> Result<(), InstanceError> {
         let work_dir = {
             let map = self.instances.read().await;
@@ -317,35 +306,14 @@ impl InstanceManager {
             inst.work_dir.clone()
         };
 
-        // Build the command. If CPU affinity is set and cpuset is available,
-        // wrap with "cpuset -c <affinity> -- <original command>".
-        // cpuset can be installed via: brew install cpuset
-        let mut child = if !cpu_affinity.is_empty() && which::which("cpuset").is_ok() {
-            let mut wrapper = TokioCommand::new("cpuset");
-            wrapper.arg("-c").arg(cpu_affinity);
-            wrapper.arg("--");
-            wrapper.arg(command);
-            for arg in args { wrapper.arg(arg); }
-            wrapper.current_dir(&work_dir);
-            wrapper.stdin(Stdio::piped());
-            wrapper.stdout(Stdio::piped());
-            wrapper.stderr(Stdio::piped());
-            wrapper.kill_on_drop(true);
-            wrapper.spawn()?
-        } else {
-            if !cpu_affinity.is_empty() {
-                tracing::info!(instance_id = %id, cpu_affinity = %cpu_affinity,
-                    "cpuset not found — install with: brew install cpuset. CPU affinity skipped.");
-            }
-            let mut cmd = TokioCommand::new(command);
-            cmd.current_dir(&work_dir);
-            cmd.stdin(Stdio::piped());
-            cmd.stdout(Stdio::piped());
-            cmd.stderr(Stdio::piped());
-            for arg in args { cmd.arg(arg); }
-            cmd.kill_on_drop(true);
-            cmd.spawn()?
-        };
+        let mut cmd = TokioCommand::new(command);
+        cmd.current_dir(&work_dir);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        for arg in args { cmd.arg(arg); }
+        cmd.kill_on_drop(true);
+        let mut child = cmd.spawn()?;
 
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
@@ -517,6 +485,40 @@ pub fn build_java_command(jar_path: &Path, server_type: &ServerType, java_args: 
     args.push("nogui".to_string());
 
     (java, args)
+}
+
+/// Compare a Minecraft version string (e.g. "1.21.9") against a minimum required
+/// major.minor.patch. Returns true if the version is at least the given target.
+/// Two-part versions like "1.22" are treated as major.minor.0.
+/// Returns false for unparseable version strings.
+pub fn version_at_least(version: &str, major: u32, minor: u32, patch: u32) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let v_major: u32 = match parts[0].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let v_minor: u32 = match parts[1].parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let v_patch: u32 = if parts.len() >= 3 {
+        match parts[2].parse() {
+            Ok(v) => v,
+            Err(_) => return false,
+        }
+    } else {
+        0
+    };
+    if v_major != major {
+        return v_major > major;
+    }
+    if v_minor != minor {
+        return v_minor > minor;
+    }
+    v_patch >= patch
 }
 
 #[derive(Debug, thiserror::Error)]
