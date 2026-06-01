@@ -2,6 +2,17 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import supertest from 'supertest';
 import { IpcClient } from '../../src/services/ipc-client';
+import { RconClient } from '../../src/services/rcon-client';
+
+const { mockRconExecute } = vi.hoisted(() => ({
+  mockRconExecute: vi.fn().mockResolvedValue('Command output'),
+}));
+
+vi.mock('../../src/services/rcon-client', () => ({
+  RconClient: vi.fn().mockImplementation(() => ({
+    execute: mockRconExecute,
+  })),
+}));
 
 function createMockIpc() {
   const instances = new Map<string, any>();
@@ -61,6 +72,21 @@ function createMockIpc() {
           }
           inst.state = 'running';
           return { id: '', result: { ok: true, state: 'running' } };
+        }
+        case 'config.get': {
+          const inst = instances.get(params.instance_id as string);
+          if (!inst) {
+            return { id: '', error: { code: 'NOT_FOUND', message: 'Instance not found' } };
+          }
+          return {
+            id: '',
+            result: {
+              'rcon.port': '25575',
+              'rcon.password': 'testpass',
+              'enable-rcon': 'true',
+              'server-port': String(params.port || inst.port),
+            },
+          };
         }
         default:
           return { id: '', result: { ok: true } };
@@ -307,6 +333,85 @@ describe('POST /api/instances/:id/restart', () => {
 
     expect(res.body.ok).toBe(true);
     expect(res.body.state).toBe('running');
+
+    await app.close();
+  });
+});
+
+describe('POST /api/instances/:id/rcon', () => {
+  it('should execute an RCON command and return the result', async () => {
+    mockRconExecute.mockResolvedValue('There are 0/20 players online:');
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'RCON Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/rcon`)
+      .send({ command: 'list' })
+      .expect(200);
+
+    expect(res.body).toEqual({ result: 'There are 0/20 players online:' });
+    expect(vi.mocked(RconClient)).toHaveBeenCalledWith('localhost', 25575);
+    expect(mockRconExecute).toHaveBeenCalledWith('testpass', 'list');
+
+    await app.close();
+  });
+
+  it('should return 404 for unknown instance', async () => {
+    const { app } = await buildTestApp();
+
+    const res = await supertest(app.server)
+      .post('/api/instances/nonexistent/rcon')
+      .send({ command: 'list' })
+      .expect(404);
+
+    expect(res.body.error).toBeDefined();
+
+    await app.close();
+  });
+
+  it('should return 400 when command is missing', async () => {
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'RCON Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/rcon`)
+      .send({})
+      .expect(400);
+
+    expect(res.body.error).toBe('Missing command.');
+
+    await app.close();
+  });
+
+  it('should return 503 on RCON connection failure', async () => {
+    mockRconExecute.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const createRes = await supertest(app.server)
+      .post('/api/instances')
+      .send({ name: 'RCON Test', type: 'paper', version: '1.21.5', port: 25565 });
+
+    const id = createRes.body.id;
+
+    const res = await supertest(app.server)
+      .post(`/api/instances/${id}/rcon`)
+      .send({ command: 'list' })
+      .expect(503);
+
+    expect(res.body.error).toContain('connect ECONNREFUSED');
 
     await app.close();
   });

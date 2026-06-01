@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { IpcClient } from '../services/ipc-client';
+import { RconClient } from '../services/rcon-client';
 
 interface InstanceRouteOptions {
   ipc: IpcClient;
@@ -165,6 +166,44 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
     } catch (err: any) {
       if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
       return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+    }
+  });
+
+  // RCON command — connects directly to the Minecraft server's RCON port
+  app.post('/api/instances/:id/rcon', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      if (!validateId(id)) {
+        return reply.status(400).send({ error: 'Invalid instance ID.' });
+      }
+      const { command } = (request.body || {}) as { command?: string };
+      if (!command) {
+        return reply.status(400).send({ error: 'Missing command.' });
+      }
+
+      // Get server.properties to read RCON settings
+      const configResponse = await ipcCall(ipc, 'config.get', { instance_id: id });
+      const props = configResponse.result as Record<string, string> | undefined;
+
+      if (!props) {
+        return reply.status(500).send({ error: 'Failed to read server.properties.' });
+      }
+
+      const rconPort = parseInt(props['rcon.port'] || '', 10);
+      const rconPassword = props['rcon.password'] || '';
+
+      if (!rconPort || !rconPassword) {
+        return reply.status(400).send({
+          error: 'RCON is not enabled. Set enable-rcon=true, rcon.port, and rcon.password in server.properties.',
+        });
+      }
+
+      const rcon = new RconClient('localhost', rconPort);
+      const result = await rcon.execute(rconPassword, command);
+      return { result };
+    } catch (err: any) {
+      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
+      return reply.status(503).send({ error: `RCON error: ${err.message}` });
     }
   });
 };
