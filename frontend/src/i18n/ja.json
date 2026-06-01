@@ -122,6 +122,8 @@
   },
   "management": {
     "title": "サーバー管理",
+    "notFound": "サーバーが見つかりません",
+    "backToDashboard": "← ダッシュボードに戻る",
     "tabs": {
       "overview": "概要",
       "players": "プレイヤー",

@@ -122,6 +122,8 @@
   },
   "management": {
     "title": "服务器管理",
+    "notFound": "服务器未找到",
+    "backToDashboard": "← 返回仪表盘",
     "tabs": {
       "overview": "概览",
       "players": "玩家",
