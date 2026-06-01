@@ -44,3 +44,48 @@ export interface IpcEvent {
   event: string;
   data: Record<string, unknown>;
 }
+
+export interface PlayerDto {
+  id: string;
+  name: string;
+}
+
+export interface UserBanDto {
+  expires?: string;
+  player: PlayerDto;
+  reason?: string;
+  source?: string;
+}
+
+export interface IpBanDto {
+  expires?: string;
+  ip: string;
+  reason?: string;
+  source?: string;
+}
+
+export interface OperatorDto {
+  bypassesPlayerLimit?: boolean;
+  permissionLevel: number;
+  player: PlayerDto;
+}
+
+export interface ServerStatus {
+  players: number;
+  started: boolean;
+  version: string;
+}
+
+export interface TypedRule {
+  key: string;
+  type: string;
+  value: unknown;
+}
+
+export interface ManagementConfig {
+  protocol: string;
+  smpPort?: number;
+  smpToken?: string;
+  rconPort?: number;
+  rconPassword?: string;
+}

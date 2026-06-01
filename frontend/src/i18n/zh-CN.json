@@ -8,7 +8,8 @@
     "newServer": "新建服务器",
     "servers": "服务器",
     "console": "控制台",
-    "config": "配置"
+    "config": "配置",
+    "manage": "管理"
   },
   "status": {
     "daemonOnline": "守护进程在线",
@@ -32,7 +33,7 @@
     "noServers": "暂无服务器",
     "noServersDesc": "创建你的第一个 Minecraft 服务器以开始使用",
     "createServer": "创建服务器",
-    "newServer": "+ 新建服务器",
+    "newServer": "新建服务器",
     "start": "启动",
     "stop": "停止",
     "restart": "重启",
@@ -49,6 +50,7 @@
       "stopping": "停止中",
       "crashed": "已崩溃"
     },
+    "manage": "管理",
     "daemonOfflineTitle": "守护进程离线",
     "daemonOfflineDesc": "Rust 守护进程未运行。请在终端中启动：",
     "orBuild": "或先构建："
@@ -116,9 +118,80 @@
     "propertyName": "属性名",
     "value": "值",
     "loading": "正在加载配置...",
-    "cpuAffinity": "CPU 亲和性 (如 0-3 或 0,2,4)",
-    "cpuAffinityHint": "留空表示使用所有 CPU 核心。示例: 0-3 表示绑定核心 0,1,2,3",
     "javaArgs": "Java 参数"
+  },
+  "management": {
+    "title": "服务器管理",
+    "tabs": {
+      "overview": "概览",
+      "players": "玩家",
+      "userBans": "玩家封禁",
+      "ipBans": "IP 封禁",
+      "operators": "管理员",
+      "whitelist": "白名单",
+      "rules": "游戏规则",
+      "rcon": "RCON",
+      "world": "世界",
+      "config": "管理配置"
+    },
+    "quickActions": {
+      "kick": "踢出",
+      "ban": "封禁",
+      "pardon": "解封",
+      "ipBan": "IP 封禁",
+      "ipPardon": "IP 解封",
+      "op": "设为管理员",
+      "deop": "取消管理员",
+      "whitelistAdd": "添加白名单",
+      "whitelistRemove": "移除白名单",
+      "reload": "重新加载",
+      "saveAll": "保存全部"
+    },
+    "status": {
+      "online": "在线",
+      "offline": "离线",
+      "banned": "已封禁",
+      "active": "活跃",
+      "inactive": "非活跃",
+      "playerCount": "玩家数",
+      "version": "版本",
+      "players": "玩家",
+      "started": "已启动",
+      "stopped": "已停止",
+      "noPlayers": "暂无玩家在线",
+      "noBans": "暂无封禁记录",
+      "noWhitelist": "暂无白名单条目",
+      "noOperators": "暂无管理员"
+    },
+    "buttons": {
+      "save": "保存",
+      "cancel": "取消",
+      "delete": "删除",
+      "add": "添加",
+      "remove": "移除",
+      "refresh": "刷新",
+      "execute": "执行",
+      "connect": "连接",
+      "disconnect": "断开"
+    },
+    "fields": {
+      "playerName": "玩家名称",
+      "reason": "原因",
+      "source": "来源",
+      "expires": "过期时间",
+      "ip": "IP 地址",
+      "permissionLevel": "权限等级",
+      "bypassesPlayerLimit": "绕过玩家限制",
+      "ruleKey": "规则键",
+      "ruleType": "规则类型",
+      "ruleValue": "规则值",
+      "protocol": "协议",
+      "smpPort": "SMP 端口",
+      "smpToken": "SMP 令牌",
+      "rconPort": "RCON 端口",
+      "rconPassword": "RCON 密码",
+      "command": "命令"
+    }
   },
   "serverTypes": {
     "paper": "Paper",

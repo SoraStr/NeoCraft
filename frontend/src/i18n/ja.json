@@ -8,7 +8,8 @@
     "newServer": "新規サーバー",
     "servers": "サーバー",
     "console": "コンソール",
-    "config": "設定"
+    "config": "設定",
+    "manage": "管理"
   },
   "status": {
     "daemonOnline": "デーモンオンライン",
@@ -32,7 +33,7 @@
     "noServers": "サーバーがありません",
     "noServersDesc": "最初のMinecraftサーバーを作成しましょう",
     "createServer": "サーバーを作成",
-    "newServer": "+ 新規サーバー",
+    "newServer": "新規サーバー",
     "start": "起動",
     "stop": "停止",
     "restart": "再起動",
@@ -49,6 +50,7 @@
       "stopping": "停止中",
       "crashed": "クラッシュ"
     },
+    "manage": "管理",
     "daemonOfflineTitle": "デーモンオフライン",
     "daemonOfflineDesc": "Rustデーモンが実行されていません。ターミナルで起動してください：",
     "orBuild": "または先にビルド："
@@ -116,9 +118,80 @@
     "propertyName": "プロパティ名",
     "value": "値",
     "loading": "設定を読み込み中...",
-    "cpuAffinity": "CPU アフィニティ (例: 0-3 または 0,2,4)",
-    "cpuAffinityHint": "空の場合は全 CPU コアを使用。例: 0-3 はコア 0,1,2,3 にバインド",
     "javaArgs": "Java 引数"
+  },
+  "management": {
+    "title": "サーバー管理",
+    "tabs": {
+      "overview": "概要",
+      "players": "プレイヤー",
+      "userBans": "プレイヤーBAN",
+      "ipBans": "IP BAN",
+      "operators": "管理者",
+      "whitelist": "ホワイトリスト",
+      "rules": "ゲームルール",
+      "rcon": "RCON",
+      "world": "ワールド",
+      "config": "管理設定"
+    },
+    "quickActions": {
+      "kick": "キック",
+      "ban": "BAN",
+      "pardon": "BAN解除",
+      "ipBan": "IP BAN",
+      "ipPardon": "IP BAN解除",
+      "op": "OP付与",
+      "deop": "OP解除",
+      "whitelistAdd": "ホワイトリスト追加",
+      "whitelistRemove": "ホワイトリスト削除",
+      "reload": "リロード",
+      "saveAll": "セーブ"
+    },
+    "status": {
+      "online": "オンライン",
+      "offline": "オフライン",
+      "banned": "BAN済み",
+      "active": "アクティブ",
+      "inactive": "非アクティブ",
+      "playerCount": "プレイヤー数",
+      "version": "バージョン",
+      "players": "プレイヤー",
+      "started": "起動済み",
+      "stopped": "停止中",
+      "noPlayers": "オンラインプレイヤーなし",
+      "noBans": "BAN記録なし",
+      "noWhitelist": "ホワイトリストなし",
+      "noOperators": "管理者なし"
+    },
+    "buttons": {
+      "save": "保存",
+      "cancel": "キャンセル",
+      "delete": "削除",
+      "add": "追加",
+      "remove": "削除",
+      "refresh": "更新",
+      "execute": "実行",
+      "connect": "接続",
+      "disconnect": "切断"
+    },
+    "fields": {
+      "playerName": "プレイヤー名",
+      "reason": "理由",
+      "source": "ソース",
+      "expires": "有効期限",
+      "ip": "IPアドレス",
+      "permissionLevel": "権限レベル",
+      "bypassesPlayerLimit": "プレイヤー制限をバイパス",
+      "ruleKey": "ルールキー",
+      "ruleType": "ルールタイプ",
+      "ruleValue": "ルール値",
+      "protocol": "プロトコル",
+      "smpPort": "SMPポート",
+      "smpToken": "SMPトークン",
+      "rconPort": "RCONポート",
+      "rconPassword": "RCONパスワード",
+      "command": "コマンド"
+    }
   },
   "serverTypes": {
     "paper": "Paper",
