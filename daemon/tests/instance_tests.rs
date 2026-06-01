@@ -349,3 +349,107 @@ fn test_version_at_least_two_part_version() {
 fn test_version_at_least_invalid() {
     assert!(!version_at_least("invalid", 1, 21, 9));
 }
+
+#[tokio::test]
+async fn test_instance_has_management_fields() {
+    let (dir, event_tx, _) = setup();
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+
+    let instance = manager
+        .create(
+            "SMP Server".into(),
+            ServerType::Paper,
+            "1.21.9".into(),
+            25565,
+            "".into(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        instance.management_port > 0,
+        "management_port should be set"
+    );
+    assert!(
+        !instance.management_token.is_empty(),
+        "management_token should be set"
+    );
+    // For version >= 1.21.9, token should be 40-char alphanumeric
+    assert_eq!(instance.management_token.len(), 40);
+    assert!(
+        instance
+            .management_token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric()),
+        "token should be alphanumeric"
+    );
+}
+
+#[tokio::test]
+async fn test_smp_config_for_1_21_9() {
+    let (dir, event_tx, _) = setup();
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+
+    let instance = manager
+        .create(
+            "SMP Server".into(),
+            ServerType::Paper,
+            "1.21.9".into(),
+            25565,
+            "".into(),
+        )
+        .await
+        .unwrap();
+
+    let props = std::fs::read_to_string(instance.work_dir.join("server.properties")).unwrap();
+    assert!(props.contains("management-server-enabled=true"));
+    assert!(props.contains(&format!(
+        "management-server-port={}",
+        instance.port + 100
+    )));
+    assert!(props.contains("management-server-secret="));
+    assert!(props.contains(
+        "management-server-allowed-origins=http://localhost:5173"
+    ));
+    // The secret in file should match the token on the instance
+    assert!(props.contains(&instance.management_token));
+}
+
+#[tokio::test]
+async fn test_rcon_config_for_1_20_4() {
+    let (dir, event_tx, _) = setup();
+    let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
+
+    let instance = manager
+        .create(
+            "RCON Server".into(),
+            ServerType::Vanilla,
+            "1.20.4".into(),
+            25565,
+            "".into(),
+        )
+        .await
+        .unwrap();
+
+    assert!(instance.management_port > 0, "management_port should be set");
+    assert!(
+        !instance.management_token.is_empty(),
+        "management_token should be set"
+    );
+    // For version < 1.21.9, token should be 32-char hex
+    assert_eq!(instance.management_token.len(), 32);
+    assert!(
+        instance
+            .management_token
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()),
+        "token should be hex"
+    );
+
+    let props = std::fs::read_to_string(instance.work_dir.join("server.properties")).unwrap();
+    assert!(props.contains("enable-rcon=true"));
+    assert!(props.contains(&format!("rcon.port={}", instance.port + 10)));
+    assert!(props.contains("rcon.password="));
+    // The password in file should match the token on the instance
+    assert!(props.contains(&instance.management_token));
+}

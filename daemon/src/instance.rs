@@ -37,6 +37,10 @@ pub struct Instance {
     pub java_args: String,
     pub created_at: String, // ISO 8601
     pub download_url: String,
+    #[serde(default)]
+    pub management_port: u16,
+    #[serde(default)]
+    pub management_token: String,
 }
 
 /// Manages the lifecycle of Minecraft server instances.
@@ -144,6 +148,32 @@ impl InstanceManager {
             crate::files::default_server_properties(port, &name),
         ).await?;
 
+        // Auto-configure SMP (>= 1.21.9) or RCON (< 1.21.9) in server.properties
+        let (management_port, management_token) = if version_at_least(&version, 1, 21, 9) {
+            let mp = port + 100;
+            let token = random_alphanumeric(40);
+            let smp_config = format!(
+                "management-server-enabled=true\n\
+                 management-server-port={}\n\
+                 management-server-secret={}\n\
+                 management-server-allowed-origins=http://localhost:5173\n",
+                mp, token
+            );
+            let existing = tokio::fs::read_to_string(work_dir.join("server.properties")).await?;
+            tokio::fs::write(work_dir.join("server.properties"), existing + &smp_config).await?;
+            (mp, token)
+        } else {
+            let mp = port + 10;
+            let token = random_hex(32);
+            let rcon_config = format!(
+                "enable-rcon=true\nrcon.port={}\nrcon.password={}\n",
+                mp, token
+            );
+            let existing = tokio::fs::read_to_string(work_dir.join("server.properties")).await?;
+            tokio::fs::write(work_dir.join("server.properties"), existing + &rcon_config).await?;
+            (mp, token)
+        };
+
         let jar_path = work_dir.join("server.jar");
 
         // Download the server JAR if a URL is provided (before persisting instance)
@@ -176,6 +206,8 @@ impl InstanceManager {
             java_args: "-Xmx2G -Xms1G".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
             download_url,
+            management_port,
+            management_token,
         };
 
         // Persist instance state to disk
@@ -485,6 +517,26 @@ pub fn build_java_command(jar_path: &Path, server_type: &ServerType, java_args: 
     args.push("nogui".to_string());
 
     (java, args)
+}
+
+/// Generate a random alphanumeric string of the given length (a-z, A-Z, 0-9).
+fn random_alphanumeric(length: usize) -> String {
+    let mut bytes = vec![0u8; length];
+    getrandom::getrandom(&mut bytes).expect("getrandom failed");
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    bytes
+        .iter()
+        .map(|&b| CHARSET[(b as usize) % CHARSET.len()] as char)
+        .collect()
+}
+
+/// Generate a random lowercase hex string of the given length.
+fn random_hex(length: usize) -> String {
+    let byte_len = (length + 1) / 2;
+    let mut bytes = vec![0u8; byte_len];
+    getrandom::getrandom(&mut bytes).expect("getrandom failed");
+    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    hex[..length].to_string()
 }
 
 /// Compare a Minecraft version string (e.g. "1.21.9") against a minimum required
