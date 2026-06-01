@@ -1,0 +1,1 @@
+{"root":["./src/app.ts","./src/index.ts","./src/routes/config.ts","./src/routes/instances.ts","./src/routes/versions.ts","./src/services/ipc-client.ts","./src/services/rcon-client.ts","./src/services/version-service.ts","./src/websocket/hub.ts"],"version":"5.9.3"}

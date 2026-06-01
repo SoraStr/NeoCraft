@@ -274,18 +274,16 @@ export default function Dashboard() {
                         </svg>
                         {t('nav.config')}
                       </button>
-                      {inst.state === 'running' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/manage/${inst.id}`); }}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-app-input hover:bg-app-border text-app-text rounded-lg text-sm font-medium transition-colors border border-app-border hover:border-app-border-hover"
-                        >
-                          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path d="M5.5 4.5l-3-3L4 0l3 3a4.5 4.5 0 016.56 6.06l-2.12 2.12A4.5 4.5 0 015.5 4.5z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                            <circle cx="10.5" cy="10.5" r="1.2" fill="currentColor" />
-                          </svg>
-                          {t('dashboard.manage')}
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/manage/${inst.id}`); }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-app-accent hover:bg-app-accent-hover text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M8 3v1.5M8 11.5V13M3 8h1.5M11.5 8H13M5.1 5.1l1 1M9.9 9.9l1 1M5.1 10.9l1-1M9.9 6.1l1-1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                        {t('dashboard.manage')}
+                      </button>
 
                       {/* Delete */}
                       <div className="ml-auto">

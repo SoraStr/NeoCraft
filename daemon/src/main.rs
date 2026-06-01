@@ -145,7 +145,6 @@ async fn handle_config_get(manager: &InstanceManager, request: &Request) -> Resp
         match neocraft_daemon::files::read_properties(&props_path).await {
             Ok(mut props) => {
                 // Include instance-level config fields not stored in server.properties
-                props.insert("cpu_affinity".to_string(), instance.cpu_affinity.clone());
                 props.insert("java_args".to_string(), instance.java_args.clone());
                 Response {
                     id: request.id.clone(),
@@ -180,20 +179,18 @@ async fn handle_config_set(manager: &InstanceManager, request: &Request) -> Resp
             },
         };
         let mut props = std::collections::HashMap::new();
-        let mut cpu_affinity: Option<String> = None;
         let mut java_args: Option<String> = None;
         for (k, v) in props_obj {
             let val = v.as_str().unwrap_or("").to_string();
             match k.as_str() {
                 // Instance-level fields — save to Instance, not server.properties
-                "cpu_affinity" => cpu_affinity = Some(val),
                 "java_args" => java_args = Some(val),
                 _ => { props.insert(k.clone(), val); }
             }
         }
         // Persist instance-level config to Instance if changed
-        if cpu_affinity.is_some() || java_args.is_some() {
-            if let Err(e) = manager.update_config(&instance_id, cpu_affinity, java_args).await {
+        if java_args.is_some() {
+            if let Err(e) = manager.update_config(&instance_id, java_args).await {
                 return Response {
                     id: request.id.clone(),
                     result: None,

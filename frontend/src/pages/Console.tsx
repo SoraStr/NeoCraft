@@ -15,6 +15,36 @@ function saveHistory(history: string[]) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-50)));
 }
 
+/* ── Icons ── */
+
+function IconBack({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconSend({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M14 2L3 7.5l4 2M14 2L8.5 13 7 9.5M14 2L7 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconTerminal({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5 6.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 10.5h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/* ── Console ── */
+
 export default function Console() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
@@ -22,7 +52,7 @@ export default function Console() {
   useWebSocket();
   const instances = useInstanceStore((s) => s.instances);
   const logs = useInstanceStore((s) => s.logs);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [cmd, setCmd] = useState('');
@@ -34,8 +64,12 @@ export default function Console() {
   const instanceLogs = id ? logs[id] || [] : [];
   const isRunning = instance?.state === 'running';
 
+  // Auto-scroll using scrollTop (not scrollIntoView — avoids disrupting outer scroll)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = logContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [instanceLogs.length]);
 
   const handleSend = async () => {
@@ -78,61 +112,89 @@ export default function Console() {
 
   if (!instance) {
     return (
-      <div className="p-6 text-center text-gray-400">
-        <p>{t('console.notFound')}</p>
-        <button onClick={() => navigate('/')} className="mt-4 text-blue-400 hover:underline">
+      <div className="p-8 text-center animate-fade-in">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-app-border-light mb-4">
+          <IconTerminal className="w-6 h-6 text-app-text-muted" />
+        </div>
+        <p className="text-app-text-secondary mb-4">{t('console.notFound')}</p>
+        <button
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-app-accent hover:text-app-accent-hover transition-colors"
+        >
+          <IconBack className="w-3.5 h-3.5" />
           {t('console.backToDashboard')}
         </button>
       </div>
     );
   }
 
+  const stateBg = isRunning ? 'bg-app-green' : 'bg-app-text-muted';
+
   return (
-    <div className="flex flex-col h-[calc(100vh-2rem)] p-6">
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-[calc(100vh-2rem)] p-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div>
-          <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-gray-300 mb-1">
+          <button
+            onClick={() => navigate('/')}
+            className="inline-flex items-center gap-1 text-sm text-app-text-muted hover:text-app-text-secondary transition-colors mb-1"
+          >
+            <IconBack className="w-3 h-3" />
             {t('console.backToDashboard')}
           </button>
-          <h1 className="text-xl font-bold">{instance.name} {t('console.title')}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-bold text-app-text">{instance.name}</h1>
+            <span className="text-app-text-muted font-medium text-lg">{t('console.title')}</span>
+          </div>
         </div>
-        <span className={`text-sm ${isRunning ? 'text-green-400' : 'text-gray-400'}`}>
+        <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${
+          isRunning ? 'bg-app-green-bg text-app-green' : 'bg-app-border-light text-app-text-secondary'
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${stateBg}`} />
           {t(`console.state.${instance.state}`)}
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-black rounded-lg border border-gray-700 p-4 font-mono text-sm mb-3">
+      {/* Log output */}
+      <div
+        ref={logContainerRef}
+        className="flex-1 overflow-y-auto rounded-xl bg-app-console-bg border border-app-border p-4 font-mono text-sm mb-3"
+      >
         {instanceLogs.length === 0 ? (
-          <p className="text-gray-600">{t('console.waitingOutput')}</p>
+          <div className="flex items-center justify-center h-full">
+            <p className="text-app-text-muted text-sm">{t('console.waitingOutput')}</p>
+          </div>
         ) : (
           instanceLogs.map((entry, i) => (
-            <div key={i} className="text-gray-300 leading-relaxed whitespace-pre-wrap break-all">
+            <div key={i} className="text-app-text leading-relaxed whitespace-pre-wrap break-all">
               {entry.line}
             </div>
           ))
         )}
-        <div ref={bottomRef} />
       </div>
 
-      {/* Command input bar */}
-      <div className="flex gap-2">
-        <span className="flex items-center text-gray-500 font-mono text-sm">›</span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={cmd}
-          onChange={(e) => setCmd(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isRunning ? '输入命令...' : '服务器未运行'}
-          disabled={!isRunning || sending}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono outline-none focus:border-blue-500 disabled:opacity-40 text-gray-200"
-          autoFocus
-        />
+      {/* Command input */}
+      <div className="flex gap-2 flex-shrink-0">
+        <div className="flex-1 flex items-center gap-2 bg-app-input rounded-xl border-2 border-app-border focus-within:border-app-accent focus-within:bg-app-input-focus transition-colors overflow-hidden">
+          <span className="pl-3.5 text-app-text-muted font-mono text-sm select-none">›</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={cmd}
+            onChange={(e) => setCmd(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isRunning ? '输入命令...' : '服务器未运行'}
+            disabled={!isRunning || sending}
+            className="flex-1 bg-transparent py-2.5 pr-3.5 text-sm font-mono outline-none text-app-text placeholder:text-app-text-muted disabled:opacity-40"
+            autoFocus
+          />
+        </div>
         <button
           onClick={handleSend}
           disabled={!isRunning || sending || !cmd.trim()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors"
         >
+          <IconSend className="w-4 h-4" />
           发送
         </button>
       </div>
