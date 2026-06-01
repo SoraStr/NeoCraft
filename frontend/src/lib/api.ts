@@ -97,6 +97,20 @@ export async function getVersions(type: string): Promise<ServerVersion[]> {
   return request<ServerVersion[]>(`/versions?type=${type}`);
 }
 
+export async function sendRconCommand(id: string, command: string): Promise<string> {
+  const res = await fetch(`${BASE}/instances/${id}/rcon`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as any).error || `RCON HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return (data as any).result ?? '';
+}
+
 export async function resolveDownloadUrl(type: string, version: string): Promise<string> {
   const res = await fetch(`${BASE}/versions/resolve?type=${encodeURIComponent(type)}&version=${encodeURIComponent(version)}`);
   if (!res.ok) {
