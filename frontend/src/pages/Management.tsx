@@ -33,7 +33,7 @@ export default function Management() {
   const instances = useInstanceStore((s) => s.instances);
 
   const instance = instances.find((i) => i.id === id);
-  const useRcon = instance ? versionAtLeast(instance.version, 1, 21, 9) : false;
+  const useSmp = instance ? versionAtLeast(instance.version, 1, 21, 9) : false;
   const isRunning = instance?.state === 'running';
 
   if (!instance) {
@@ -54,10 +54,10 @@ export default function Management() {
     );
   }
 
-  const protocolLabel = useRcon ? 'RCON' : 'SMP';
-  const protocolBadge = useRcon
-    ? 'bg-blue-50 text-blue-600 border-blue-200'
-    : 'bg-app-green-bg text-app-green border-app-accent-border';
+  const protocolLabel = useSmp ? 'SMP' : 'RCON';
+  const protocolBadge = useSmp
+    ? 'bg-app-green-bg text-app-green border-app-accent-border'
+    : 'bg-blue-50 text-blue-600 border-blue-200';
 
   const connectionDot = isRunning
     ? 'bg-app-green'
@@ -85,10 +85,10 @@ export default function Management() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
-        {useRcon ? (
-          <RconPanel instanceId={id!} />
+        {useSmp ? (
+          <SmpPanel instanceId={id!} managementPort={instance.management_port} managementToken={instance.management_token} />
         ) : (
-          <SmpPanel instanceId={id!} />
+          <RconPanel instanceId={id!} />
         )}
       </div>
     </div>

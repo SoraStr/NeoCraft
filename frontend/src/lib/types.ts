@@ -9,8 +9,11 @@ export interface Instance {
   version: string;
   port: number;
   state: InstanceState;
-  javaArgs: string;
-  createdAt: string;
+  java_args: string;
+  created_at: string;
+  download_url: string;
+  management_port: number;
+  management_token: string;
 }
 
 export interface ServerVersion {
