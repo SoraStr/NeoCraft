@@ -2,7 +2,7 @@
 
 A cross-platform Minecraft server control panel with a beautiful web UI. Manage multiple Minecraft servers from a single dashboard — create, start, stop, monitor, and configure them all through your browser.
 
-![NeoCraft](docs/neocraft-preview.png)
+[简体中文](README-ZH.md)
 
 ## Features
 
