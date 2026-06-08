@@ -8,15 +8,15 @@ interface IpcRequest {
   params: Record<string, unknown>;
 }
 
-interface IpcResponse {
+export interface IpcResponse {
   id: string;
   result?: unknown;
   error?: { code: string; message: string };
 }
 
-interface IpcEvent {
+export interface IpcEvent {
   event: string;
-  data: Record<string, unknown>;
+  data: unknown;
 }
 
 type EventCallback = (event: IpcEvent) => void;
@@ -35,8 +35,20 @@ export class IpcClient {
   private shouldReconnect = true;
   private connecting = false;
   private reconnectTimerActive = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private authToken: string | null = null;
 
-  constructor(private socketPath: string) {}
+  constructor(
+    private socketPath: string,
+    authToken?: string | null,
+  ) {
+    this.authToken = authToken ?? null;
+  }
+
+  /** Update the auth token (e.g. after daemon auto-start generates one). */
+  setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
 
   async connect(): Promise<void> {
     // Clean up any previous connection first to prevent duplicate event processing
@@ -45,8 +57,22 @@ export class IpcClient {
     this.shouldReconnect = true;
 
     return new Promise((resolve, reject) => {
-      this.socket = createConnection(this.socketPath, () => {
+      this.socket = createConnection(this.socketPath, async () => {
         this.rl = createInterface({ input: this.socket!, crlfDelay: Infinity });
+
+        // ── IPC Authentication handshake ──
+        // The daemon expects the auth token as the first line if auth is enabled.
+        if (this.authToken) {
+          try {
+            await this.authenticate();
+          } catch (authErr) {
+            this.connecting = false;
+            this.cleanup();
+            reject(authErr);
+            return;
+          }
+        }
+
         this.rl.on('line', (line: string) => this.handleLine(line));
         this.connecting = false;
         this.reconnectDelay = 100; // reset backoff on successful connection
@@ -55,6 +81,7 @@ export class IpcClient {
 
       this.socket.on('error', (err) => {
         this.connecting = false;
+        this.cleanup();
         reject(err);
       });
 
@@ -62,6 +89,56 @@ export class IpcClient {
         this.connecting = false;
         if (this.shouldReconnect && !this.reconnectTimerActive) {
           this.reconnect();
+        }
+      });
+    });
+  }
+
+  /** Send the auth token and wait for the daemon's acknowledgement. */
+  private authenticate(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const authTimeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('IPC authentication timed out'));
+      }, 5000);
+
+      const cleanup = () => {
+        clearTimeout(authTimeout);
+        this.rl?.removeListener('line', onLine);
+        if (this.socket) {
+          this.socket.removeListener('error', onError);
+        }
+      };
+
+      const onLine = (line: string) => {
+        try {
+          const msg = JSON.parse(line);
+          if (msg.auth === 'ok') {
+            cleanup();
+            resolve();
+          } else if (msg.auth === 'error') {
+            cleanup();
+            reject(new Error(`IPC authentication failed: ${msg.message || 'unknown'}`));
+          }
+          // Ignore other lines (unlikely during handshake)
+        } catch {
+          // Not JSON — might be a raw response, ignore
+        }
+      };
+
+      const onError = (err: Error) => {
+        cleanup();
+        reject(err);
+      };
+
+      this.rl!.on('line', onLine);
+      this.socket!.on('error', onError);
+
+      // Send the auth token as the first line
+      this.socket!.write(this.authToken + '\n', (err) => {
+        if (err) {
+          cleanup();
+          reject(err);
         }
       });
     });
@@ -82,6 +159,11 @@ export class IpcClient {
 
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.reconnectTimerActive = false;
+    }
     this.cleanup();
     // Reject all pending requests
     for (const [, pending] of this.pending) {
@@ -107,10 +189,15 @@ export class IpcClient {
         reject(new Error(`Request ${method} timed out after ${timeout}ms`));
       }, timeout);
 
+      const request: IpcRequest = { id, method, params };
       this.pending.set(id, { resolve, reject, timer });
 
-      const request: IpcRequest = { id, method, params };
-      this.socket!.write(JSON.stringify(request) + '\n');
+      this.socket!.write(JSON.stringify(request) + '\n', (err) => {
+        if (!err) return;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err);
+      });
     });
   }
 
@@ -147,8 +234,9 @@ export class IpcClient {
     if (!this.shouldReconnect || this.connecting) return;
     this.cleanup();
     this.reconnectTimerActive = true;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimerActive = false;
+      this.reconnectTimer = null;
       this.connect().catch(() => {
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
       });

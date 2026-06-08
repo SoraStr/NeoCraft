@@ -1,44 +1,155 @@
-import type { Instance, ServerVersion, CreateInstanceInput } from './types';
+import type { Instance, ServerVersion, CreateInstanceInput, FabricVersionMeta } from './types';
 
-const BASE = '/api';
+const API_HOST = (import.meta.env.VITE_API_HOST || '').replace(/\/$/, '');
+const BASE = API_HOST ? `${API_HOST}/api` : '/api';
 
-async function request<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
+/** Auth token for daemon API authentication (MAJOR-4). Set via VITE_API_TOKEN env var or setAuthToken(). */
+let authToken: string | null = import.meta.env.VITE_API_TOKEN || null;
+let authInitPromise: Promise<void> | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+/**
+ * Ensure the auth token is fetched before any API call proceeds.
+ * Safe to call multiple times — only fetches once.
+ * Exported as `initAuth` so WebSocketProvider can eagerly trigger it.
+ */
+export async function initAuth(): Promise<void> {
+  await ensureAuth();
+}
+
+/**
+ * Internal: fetch the auth token from the server if we don't have one yet.
+ * Returns a stable promise so concurrent callers all wait on the same fetch.
+ */
+async function ensureAuth(): Promise<void> {
+  if (authToken) return; // Already have a token (from env or previous fetch)
+  if (!authInitPromise) {
+    authInitPromise = (async () => {
+      try {
+        const data = await rawFetch<{ token: string | null }>('/auth-token', { timeoutMs: 5000 });
+        if (data?.token) {
+          setAuthToken(data.token);
+        }
+      } catch {
+        // Auth might be disabled, or server not ready yet — that's okay.
+        // Reset so we retry on the next request.
+        console.warn('[API] Failed to fetch auth token; API calls may be unauthorized');
+        authInitPromise = null;
+      }
+    })();
+  }
+  await authInitPromise;
+}
+
+interface RequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+export interface FileEntry {
+  name: string;
+  size: number;
+  modified: number;
+  disabled: boolean;
+}
+
+export interface ModInfo {
+  fileName: string;
+  name: string;
+  modid: string;
+  version: string;
+  loader: string;
+  size: number;
+  disabled: boolean;
+  description?: string;
+  authors?: string[];
+}
+
+/** Build a full API URL from a path (e.g. "/instances/xxx/mods"). */
+export function apiUrl(path: string): string {
+  return `${BASE}${path}`;
+}
+
+/**
+ * Low-level fetch without auth initialization.
+ * Used internally by ensureAuth() to avoid circular dependency,
+ * and by request() after auth is ensured.
+ */
+async function rawFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
-  const timeoutMs = options?.timeoutMs ?? 10000;
-  const { timeoutMs: _, ...fetchOptions } = (options || {});
+  const timeoutMs = options.timeoutMs ?? 10000;
+  const { timeoutMs: _timeoutMs, headers: inputHeaders, ...fetchOptions } = options;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = new Headers(inputHeaders);
+
+  if (fetchOptions.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (authToken) {
+    headers.set('Authorization', `Bearer ${authToken}`);
+  }
 
   try {
-    // Only set Content-Type when there's a body (avoids Fastify empty-body errors)
-    const headers: Record<string, string> = {};
-    if (fetchOptions.body) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(apiUrl(path), {
+      ...fetchOptions,
       headers,
       signal: controller.signal,
-      ...fetchOptions,
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error((body as any).error || `HTTP ${res.status}`);
+      const body = await readJson<{ error?: string }>(res);
+      throw new Error(body?.error || `HTTP ${res.status}`);
     }
 
     if (res.status === 204) return undefined as T;
-    return res.json();
-  } catch (err: any) {
-    if (err.name === 'AbortError') throw new Error('Request timed out');
-    throw err;
+    return (await readJson<T>(res)) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
+/**
+ * Authenticated API request. Automatically ensures the auth token
+ * is fetched before the first call, so no component needs to worry
+ * about race conditions with initAuth().
+ */
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  await ensureAuth();
+  return rawFetch<T>(path, options);
+}
+
+async function readJson<T>(res: Response): Promise<T | undefined> {
+  const text = await res.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (import.meta.env.DEV) {
+      console.warn('[API] Failed to parse JSON response:', text.slice(0, 200));
+    }
+    return undefined;
+  }
+}
+
+function withQuery(path: string, params: Record<string, string | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value);
+  }
+  const suffix = query.toString();
+  return suffix ? `${path}?${suffix}` : path;
+}
+
 export async function checkHealth(): Promise<{ status: string; daemon_connected: boolean }> {
-  const res = await fetch(`${BASE}/health`);
-  return res.json();
+  return request<{ status: string; daemon_connected: boolean }>('/health');
 }
 
 export async function getInstances(): Promise<Instance[]> {
@@ -50,11 +161,24 @@ export async function getInstance(id: string): Promise<Instance> {
 }
 
 export async function createInstance(input: CreateInstanceInput): Promise<Instance> {
-  // Long timeout — downloading the JAR can take minutes
   return request<Instance>('/instances', {
     method: 'POST',
     body: JSON.stringify(input),
-    timeoutMs: 300000, // 5 minutes
+    timeoutMs: 300000,
+  });
+}
+
+export async function importInstance(input: {
+  name: string;
+  sourceDir: string;
+  port?: number;
+  javaArgs?: string;
+  javaPath?: string;
+}): Promise<Instance> {
+  return request<Instance>('/instances/import', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: 120000,
   });
 }
 
@@ -81,6 +205,14 @@ export async function sendCommand(id: string, command: string): Promise<void> {
   });
 }
 
+export async function sendRconCommand(id: string, command: string): Promise<string> {
+  const data = await request<{ result?: string }>(`/instances/${id}/rcon`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  });
+  return data.result ?? '';
+}
+
 export async function getConfig(id: string): Promise<Record<string, string>> {
   return request<Record<string, string>>(`/instances/${id}/config`);
 }
@@ -93,30 +225,66 @@ export async function updateConfig(id: string, properties: Record<string, string
 }
 
 export async function getVersions(type: string): Promise<ServerVersion[]> {
-  // Version list fetch is fast (one API call), use default 10s timeout
-  return request<ServerVersion[]>(`/versions?type=${type}`);
+  return request<ServerVersion[]>(withQuery('/versions', { type }));
 }
 
-export async function sendRconCommand(id: string, command: string): Promise<string> {
-  const res = await fetch(`${BASE}/instances/${id}/rcon`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as any).error || `RCON HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  return (data as any).result ?? '';
-}
-
-export async function resolveDownloadUrl(type: string, version: string): Promise<string> {
-  const res = await fetch(`${BASE}/versions/resolve?type=${encodeURIComponent(type)}&version=${encodeURIComponent(version)}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as any).error || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
+export async function resolveDownloadUrl(
+  type: string,
+  version: string,
+  loader?: string,
+  installer?: string,
+): Promise<string> {
+  const data = await request<{ downloadUrl: string }>(withQuery('/versions/resolve', {
+    type,
+    version,
+    loader,
+    installer,
+  }));
   return data.downloadUrl;
+}
+
+export async function getFabricLoaderVersions(): Promise<FabricVersionMeta[]> {
+  return request<FabricVersionMeta[]>('/versions/fabric/loader');
+}
+
+export async function getFabricInstallerVersions(): Promise<FabricVersionMeta[]> {
+  return request<FabricVersionMeta[]>('/versions/fabric/installer');
+}
+
+export async function listFiles(id: string, path: string): Promise<FileEntry[]> {
+  return request<FileEntry[]>(withQuery(`/instances/${id}/files`, { path }));
+}
+
+export async function deleteFile(id: string, path: string): Promise<void> {
+  return request<void>(withQuery(`/instances/${id}/files`, { path }), { method: 'DELETE' });
+}
+
+export async function uploadFile(
+  id: string,
+  dir: string,
+  fileName: string,
+  dataBase64: string,
+): Promise<void> {
+  return request<void>(`/instances/${id}/files`, {
+    method: 'POST',
+    body: JSON.stringify({ path: `${dir}/${fileName}`, data: dataBase64 }),
+  });
+}
+
+export async function toggleFileDisabled(id: string, oldPath: string, newPath: string): Promise<void> {
+  return request<void>(`/instances/${id}/files`, {
+    method: 'PATCH',
+    body: JSON.stringify({ oldPath, newPath }),
+  });
+}
+
+export async function getMods(id: string): Promise<ModInfo[]> {
+  return request<ModInfo[]>(`/instances/${id}/mods`);
+}
+
+export async function scanMods(id: string): Promise<{ scanned: number; mods: ModInfo[] }> {
+  return request<{ scanned: number; mods: ModInfo[] }>(`/instances/${id}/mods/scan`, {
+    method: 'POST',
+    timeoutMs: 600000,
+  });
 }
