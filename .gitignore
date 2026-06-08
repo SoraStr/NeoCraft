@@ -5,3 +5,12 @@ target/
 *.log
 .DS_Store
 .neocraft/
+build/
+fabric/
+graphify-out/
+**/graphify-out/
+
+# Ignore all root-level markdown files except README
+/*.md
+!README.md
+!README-ZH.md
