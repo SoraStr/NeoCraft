@@ -11,6 +11,7 @@ import {
   Globe,
   Pickaxe,
   Flame,
+  Info,
 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useInstanceStore } from '../../stores/instanceStore';
@@ -92,9 +93,7 @@ export default function Sidebar() {
       {/* Brand */}
       <div className="px-5 py-4 border-b border-app-border">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-app-accent flex items-center justify-center">
-            <Server className="w-4 h-4 text-white" />
-          </div>
+          <img src="/neocraft-logo.png" alt="NeoCraft" className="w-8 h-8 rounded-md object-contain" />
           <div>
             <h1 className="text-sm font-bold tracking-tight text-app-text leading-none">
               {t('app.title')}
@@ -114,6 +113,13 @@ export default function Sidebar() {
           <Plus className="w-4 h-4 flex-shrink-0" />
           {t('nav.newServer')}
         </NavLink>
+
+        <div className="mt-4 pt-3 border-t border-app-border">
+          <NavLink to="/about" className={linkClass}>
+            <Info className="w-4 h-4 flex-shrink-0" />
+            {t('nav.about')}
+          </NavLink>
+        </div>
 
         {/* Server list */}
         {instances.length > 0 && (
