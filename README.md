@@ -2,6 +2,8 @@
 
 A cross-platform Minecraft server control panel with a beautiful web UI. Manage multiple Minecraft servers from a single dashboard — create, start, stop, monitor, and configure them all through your browser.
 
+跨平台 Minecraft 服务器控制面板，拥有精美的 Web 界面。通过浏览器集中管理多台 Minecraft 服务器——创建、启动、停止、监控和配置，一站式完成。
+
 [简体中文](README-ZH.md)
 
 ## Features
