@@ -1,18 +1,18 @@
-import Fastify, { FastifyInstance } from 'fastify';
-import { spawn, ChildProcess } from 'node:child_process';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import websocket from '@fastify/websocket';
 import cors from '@fastify/cors';
-import { IpcClient } from './services/ipc-client';
-import { WebSocketHub } from './websocket/hub';
-import { instanceRoutes } from './routes/instances';
-import { configRoutes } from './routes/config';
-import { versionRoutes } from './routes/versions';
-import { VersionService } from './services/version-service';
+import fastifyStatic from '@fastify/static';
+import { IpcClient } from './services/ipc-client.js';
+import { WebSocketHub } from './websocket/hub.js';
+import { instanceRoutes } from './routes/instances.js';
+import { configRoutes } from './routes/config.js';
+import { versionRoutes } from './routes/versions.js';
+import { VersionService } from './services/version-service.js';
+import { loadRuntimeConfig, loadAuthToken, type RuntimeOptions } from './config.js';
+import { DaemonRuntime } from './services/daemon-runtime.js';
 
-export interface AppOptions {
-  ipcSocketPath?: string;
+export interface AppOptions extends RuntimeOptions {
   mockIpc?: boolean;
 }
 
@@ -20,135 +20,106 @@ export interface AppInstance {
   server: FastifyInstance;
   ipc: IpcClient;
   wsHub: WebSocketHub;
-}
-
-function findDaemonBinary(): string | null {
-  // Check common locations
-  const candidates = [
-    join(process.cwd(), '..', 'daemon', 'target', 'release', 'neocraft-daemon'),
-    join(process.cwd(), '..', 'daemon', 'target', 'debug', 'neocraft-daemon'),
-    join(process.cwd(), 'daemon', 'target', 'release', 'neocraft-daemon'),
-    join(process.cwd(), 'daemon', 'target', 'debug', 'neocraft-daemon'),
-  ];
-  for (const path of candidates) {
-    if (existsSync(path)) return path;
-  }
-  return null;
-}
-
-function spawnDaemon(socketPath: string): ChildProcess | null {
-  const bin = findDaemonBinary();
-  if (!bin) {
-    console.warn('[app] Daemon binary not found. Build it with: cd daemon && cargo build');
-    return null;
-  }
-  console.log(`[app] Auto-starting daemon: ${bin}`);
-  const child = spawn(bin, [
-    '--socket', socketPath,
-    '--data-dir', join(process.env.HOME || '/tmp', '.neocraft'),
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stdout?.on('data', (d) => process.stdout.write(`[daemon] ${d}`));
-  child.stderr?.on('data', (d) => process.stderr.write(`[daemon] ${d}`));
-  child.on('exit', (code) => console.log(`[app] Daemon exited with code ${code}`));
-  return child;
+  daemon: DaemonRuntime | null;
 }
 
 export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
+  const runtimeConfig = loadRuntimeConfig({
+    ...options,
+    autoStartDaemon: options.mockIpc ? false : options.autoStartDaemon,
+  });
+
   const server = Fastify({
     logger: true,
+    bodyLimit: 140 * 1024 * 1024,
     genReqId: () => `nc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   });
 
-  await server.register(cors, {
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
-  });
+  await server.register(cors, { origin: runtimeConfig.corsOrigins });
   await server.register(websocket);
 
-  const socketPath = options.ipcSocketPath ||
-    join(process.env.HOME || process.env.USERPROFILE || '/tmp', '.neocraft', 'daemon.sock');
-
-  const ipc = new IpcClient(socketPath);
-  const wsHub = new WebSocketHub();
-
-  // Track daemon connection state
-  let daemonConnected = false;
-
-  // Try to connect, auto-spawn daemon if needed
-  if (!options.mockIpc) {
-    try {
-      await ipc.connect();
-      daemonConnected = true;
-      server.log.info(`Connected to daemon at ${socketPath}`);
-    } catch {
-      server.log.warn(`Daemon not running at ${socketPath}, attempting auto-start...`);
-      const child = spawnDaemon(socketPath);
-      if (child) {
-        // Wait for daemon to start up
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 500));
-          try {
-            await ipc.connect();
-            daemonConnected = true;
-            server.log.info('Daemon auto-started and connected');
-            break;
-          } catch (err: any) {
-            if (i === 19) {
-              server.log.warn(`Daemon still unreachable after 20 retries: ${err.message}`);
-            }
-          }
-        }
-      }
-      if (!daemonConnected) {
-        server.log.warn('Could not connect to daemon. Start it manually:');
-        server.log.warn('  cd daemon && cargo run');
-      }
+  // ── Rate Limiter (MAJOR-3) ──────────────────────────────────────
+  const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+  const RATE_MAX = 100;
+  const RATE_WINDOW = 60_000;
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of rateLimitMap) {
+      if (now > v.resetTime) rateLimitMap.delete(k);
     }
+  }, 60_000);
+  server.addHook('onClose', () => clearInterval(cleanupTimer));
 
-    // Monitor connection — if it drops, update status
-    ipc.onEvent((event) => {
-      wsHub.broadcast(event);
-    });
+  server.addHook('onRequest', async (request, reply) => {
+    const ip = request.ip;
+    const now = Date.now();
+    const entry = rateLimitMap.get(ip);
+    if (!entry || now > entry.resetTime) {
+      rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_WINDOW });
+    } else if (entry.count >= RATE_MAX) {
+      return reply.status(429).send({ error: 'Too many requests. Please try again later.' });
+    } else {
+      entry.count++;
+    }
+  });
 
-    // Periodic health ping to detect disconnects
-    const healthTimer = setInterval(async () => {
-      try {
-        await ipc.request('instance.list', {}, { timeout: 2000 });
-        if (!daemonConnected) {
-          daemonConnected = true;
-          wsHub.broadcast({ event: 'daemon.status', data: { connected: true, version: '0.1.0' } });
-        }
-      } catch {
-        if (daemonConnected) {
-          daemonConnected = false;
-          wsHub.broadcast({ event: 'daemon.status', data: { connected: false } });
-        }
-      }
-    }, 5000);
+  // ── API Authentication (MAJOR-4) ────────────────────────────────
+  // Re-read the token file on each request so tokens written after startup
+  // (e.g. by an auto-started daemon) are picked up without restart.
+  server.addHook('onRequest', async (request, reply) => {
+    if (request.url === '/api/health' || request.url === '/api/auth-token' || request.url === '/ws') return;
+    if (!request.url.startsWith('/api')) return;
 
+    const currentToken = loadAuthToken(runtimeConfig.dataDir);
+    if (!currentToken) return; // auth disabled when no token
+
+    const auth = request.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'Missing authorization token' });
+    }
+    if (auth.slice(7) !== currentToken) {
+      return reply.status(401).send({ error: 'Invalid authorization token' });
+    }
+  });
+
+  const ipc = new IpcClient(runtimeConfig.ipcSocketPath, runtimeConfig.authToken);
+  const wsHub = new WebSocketHub();
+  const daemon = options.mockIpc
+    ? null
+    : new DaemonRuntime({
+        ipc,
+        wsHub,
+        config: runtimeConfig,
+        logger: server.log,
+      });
+
+  if (daemon) {
+    await daemon.start();
     server.addHook('onClose', async () => {
-      clearInterval(healthTimer);
-      await ipc.disconnect();
+      await daemon.close();
     });
   }
 
-  // WebSocket endpoint
-  server.register(async function (scope) {
-    scope.get('/ws', { websocket: true }, (socket, _req) => {
+  await server.register(async function realtime(scope) {
+    scope.get('/ws', { websocket: true }, (socket) => {
       wsHub.addClient(socket);
       socket.send(JSON.stringify({
         event: 'daemon.status',
-        data: { connected: daemonConnected, version: '0.1.0' },
+        data: daemon?.status ?? { connected: false, version: '0.1.0' },
       }));
-      socket.on('close', () => wsHub.removeClient(socket));
     });
   });
 
-  // Health check that actually probes the daemon
   server.get('/api/health', async () => ({
     status: 'ok',
-    daemon_connected: daemonConnected,
+    daemon_connected: daemon?.status.connected ?? false,
+  }));
+
+  // Provide the auth token to the frontend so it can authenticate API calls.
+  // Re-reads the token file each time so it picks up tokens written after startup
+  // (e.g. when the daemon is auto-started and generates a new token).
+  server.get('/api/auth-token', async () => ({
+    token: loadAuthToken(runtimeConfig.dataDir),
   }));
 
   const versionService = new VersionService();
@@ -156,5 +127,18 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   await server.register(configRoutes, { ipc });
   await server.register(versionRoutes, { versionService });
 
-  return { server, ipc, wsHub };
+  if (existsSync(runtimeConfig.frontendDist)) {
+    await server.register(fastifyStatic, {
+      root: runtimeConfig.frontendDist,
+      prefix: '/',
+    });
+    server.setNotFoundHandler(async (request, reply) => {
+      if (request.method === 'GET' && !request.url.startsWith('/api') && !request.url.startsWith('/ws')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'Not found' });
+    });
+  }
+
+  return { server, ipc, wsHub, daemon };
 }

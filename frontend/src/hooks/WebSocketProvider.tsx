@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import type { IpcEvent } from '../lib/types';
 import { useInstanceStore } from '../stores/instanceStore';
+import { initAuth } from '../lib/api';
 
 type EventHandler = (event: IpcEvent) => void;
 
@@ -29,12 +30,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       wsRef.current.close();
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const wsHost = import.meta.env.VITE_WS_HOST || window.location.host;
+    const wsUrl = `${protocol}//${wsHost}/ws`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setWsConnected(true);
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      // Fetch the auth token from the server so subsequent API calls are authenticated.
+      initAuth();
     };
     ws.onclose = () => {
       setWsConnected(false);
