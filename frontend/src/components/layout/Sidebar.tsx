@@ -1,57 +1,67 @@
+import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  LayoutDashboard,
+  Plus,
+  Server,
+  Sun,
+  Moon,
+  Monitor,
+  Globe,
+  Pickaxe,
+  Flame,
+} from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useInstanceStore } from '../../stores/instanceStore';
+import { useTheme } from '../../contexts/ThemeContext';
 
-/* ── Inline SVG Icons ── */
+type Theme = 'light' | 'dark' | 'system' | 'mc-classic' | 'mc-modern';
 
-function IconDashboard({ className }: { className?: string }) {
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  
+  const themeCycle: Theme[] = ['light', 'dark', 'mc-classic', 'mc-modern', 'system'];
+  const currentIndex = themeCycle.indexOf(theme);
+  const next = themeCycle[(currentIndex + 1) % themeCycle.length];
+  
+  const icons: Record<Theme, React.ReactNode> = {
+    'light': <Sun className="w-4 h-4" />,
+    'dark': <Moon className="w-4 h-4" />,
+    'system': <Monitor className="w-4 h-4" />,
+    'mc-classic': <Pickaxe className="w-4 h-4" />,
+    'mc-modern': <Flame className="w-4 h-4" />,
+  };
+  
+  const labels: Record<Theme, string> = {
+    'light': '浅色模式',
+    'dark': '深色模式',
+    'system': '跟随系统',
+    'mc-classic': 'MC 经典',
+    'mc-modern': 'MC 现代',
+  };
+
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="11" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
+    <button
+      onClick={() => setTheme(next)}
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-app-text-secondary hover:text-app-text hover:bg-app-sidebar-hover rounded-lg transition-colors"
+      title={labels[theme] + ' — 点击切换'}
+    >
+      {icons[theme]}
+      <span className="hidden sm:inline">{labels[theme]}</span>
+    </button>
   );
 }
-
-function IconPlus({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10 6v8M6 10h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconServer({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="3" y="3" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="6" cy="5.5" r="1" fill="currentColor" />
-      <rect x="3" y="9.5" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="6" cy="12" r="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function IconGlobe({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5" />
-      <ellipse cx="10" cy="10" rx="3.5" ry="8" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M2 10h16M2 7h16M2 13h16" stroke="currentColor" strokeWidth="0.5" opacity="0.4" />
-    </svg>
-  );
-}
-
-/* ── Sidebar ── */
 
 export default function Sidebar() {
   const { t, i18n } = useTranslation();
   const { wsConnected, daemonConnected } = useWebSocket();
   const instances = useInstanceStore((s) => s.instances);
+  const fetchInstances = useInstanceStore((s) => s.fetchInstances);
+
+  useEffect(() => {
+    fetchInstances();
+  }, [fetchInstances]);
 
   const toggleLang = () => {
     const next = i18n.language === 'zh-CN' ? 'ja' : 'zh-CN';
@@ -61,7 +71,7 @@ export default function Sidebar() {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
       isActive
-        ? 'bg-app-accent-bg text-app-accent'
+        ? 'bg-app-sidebar-active text-app-accent'
         : 'text-app-text-secondary hover:text-app-text hover:bg-app-sidebar-hover'
     }`;
 
@@ -78,32 +88,39 @@ export default function Sidebar() {
     : t('status.disconnected');
 
   return (
-    <aside className="w-56 h-screen bg-app-sidebar border-r border-app-border flex flex-col flex-shrink-0 select-none">
+    <aside className="w-56 h-screen bg-app-sidebar border-r border-app-border flex flex-col flex-shrink-0 select-none transition-theme">
       {/* Brand */}
       <div className="px-5 py-4 border-b border-app-border">
-        <h1 className="text-base font-bold tracking-tight text-app-text">
-          {t('app.title')}
-        </h1>
-        <p className="text-xs text-app-text-muted mt-0.5">{t('app.subtitle')}</p>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-md bg-app-accent flex items-center justify-center">
+            <Server className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h1 className="text-sm font-bold tracking-tight text-app-text leading-none">
+              {t('app.title')}
+            </h1>
+            <p className="text-[10px] text-app-text-muted mt-0.5">{t('app.subtitle')}</p>
+          </div>
+        </div>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         <NavLink to="/" end className={linkClass}>
-          <IconDashboard className="w-4 h-4 flex-shrink-0" />
+          <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
           {t('nav.dashboard')}
         </NavLink>
         <NavLink to="/setup" className={linkClass}>
-          <IconPlus className="w-4 h-4 flex-shrink-0" />
+          <Plus className="w-4 h-4 flex-shrink-0" />
           {t('nav.newServer')}
         </NavLink>
 
         {/* Server list */}
         {instances.length > 0 && (
-          <div className="mt-5 pt-4 border-t border-app-border">
+          <div className="mt-4 pt-3 border-t border-app-border">
             <div className="flex items-center gap-1.5 px-3 mb-2">
-              <IconServer className="w-3.5 h-3.5 text-app-text-muted" />
-              <p className="text-xs text-app-text-muted font-medium uppercase tracking-wider">
+              <Server className="w-3.5 h-3.5 text-app-text-muted" />
+              <p className="text-[10px] text-app-text-muted font-semibold uppercase tracking-wider">
                 {t('nav.servers')}
               </p>
             </div>
@@ -112,7 +129,7 @@ export default function Sidebar() {
                 <div key={inst.id} className="px-2 py-1.5">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      className={`w-2 h-2 rounded-sm flex-shrink-0 ${
                         inst.state === 'running'
                           ? 'bg-app-green'
                           : inst.state === 'starting' || inst.state === 'stopping'
@@ -145,17 +162,18 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-app-border space-y-2.5">
+      <div className="p-3 border-t border-app-border space-y-1">
+        <ThemeToggle />
         <button
           onClick={toggleLang}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-app-text-secondary hover:text-app-text hover:bg-app-sidebar-hover rounded-md transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-app-text-secondary hover:text-app-text hover:bg-app-sidebar-hover rounded-lg transition-colors"
         >
-          <IconGlobe className="w-3.5 h-3.5 flex-shrink-0" />
+          <Globe className="w-3.5 h-3.5 flex-shrink-0" />
           {i18n.language === 'zh-CN' ? '日本語' : '中文'}
         </button>
-        <div className="flex items-center gap-2 px-1">
-          <span className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`} />
-          <span className="text-xs text-app-text-muted truncate">{statusLabel}</span>
+        <div className="flex items-center gap-2 px-3 py-1">
+          <span className={`w-2 h-2 rounded-sm ${statusColor} flex-shrink-0`} />
+          <span className="text-[11px] text-app-text-muted truncate">{statusLabel}</span>
         </div>
       </div>
     </aside>

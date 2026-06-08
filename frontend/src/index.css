@@ -1,34 +1,114 @@
 @import "tailwindcss";
 
 @theme {
-  --color-app-bg: #f8f7f4;
-  --color-app-surface: #ffffff;
-  --color-app-border: #e8e6e1;
-  --color-app-border-light: #f0eeea;
-  --color-app-border-hover: #d4d1ca;
-  --color-app-text: #1c1c1a;
-  --color-app-text-secondary: #787670;
-  --color-app-text-muted: #a09c94;
-  --color-app-accent: #059669;
-  --color-app-accent-hover: #047857;
-  --color-app-accent-bg: #ecfdf5;
-  --color-app-accent-border: #a7f3d0;
-  --color-app-sidebar: #f3f1ed;
-  --color-app-sidebar-hover: #eae8e3;
-  --color-app-input: #f5f4f1;
-  --color-app-input-focus: #ffffff;
-  --color-app-console-bg: #f5f4f1;
-  --color-app-green: #16a34a;
-  --color-app-green-bg: #f0fdf4;
-  --color-app-amber: #d97706;
-  --color-app-amber-bg: #fffbeb;
-  --color-app-red: #dc2626;
-  --color-app-red-bg: #fef2f2;
+  /* ── Typography ── */
   --font-family-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* ── Light theme tokens ── */
+  --color-app-bg: #f9fafb;
+  --color-app-surface: #ffffff;
+  --color-app-surface-elevated: #ffffff;
+  --color-app-border: #e5e7eb;
+  --color-app-border-light: #f3f4f6;
+  --color-app-border-hover: #d1d5db;
+  --color-app-text: #111827;
+  --color-app-text-secondary: #4b5563;
+  --color-app-text-muted: #9ca3af;
+  --color-app-accent: #10b981;
+  --color-app-accent-hover: #059669;
+  --color-app-accent-bg: #ecfdf5;
+  --color-app-accent-border: #6ee7b7;
+  --color-app-sidebar: #f9fafb;
+  --color-app-sidebar-hover: #f3f4f6;
+  --color-app-sidebar-active: #ecfdf5;
+  --color-app-input: #f9fafb;
+  --color-app-input-focus: #ffffff;
+  --color-app-console-bg: #1e1e2e;
+  --color-app-console-text: #cdd6f4;
+  --color-app-green: #22c55e;
+  --color-app-green-bg: #f0fdf4;
+  --color-app-amber: #f59e0b;
+  --color-app-amber-bg: #fffbeb;
+  --color-app-red: #ef4444;
+  --color-app-red-bg: #fef2f2;
+  --color-app-blue: #3b82f6;
+  --color-app-blue-bg: #eff6ff;
+  --color-app-purple: #8b5cf6;
+  --color-app-purple-bg: #f5f3ff;
+  --color-app-gold: #eab308;
+  --color-app-gold-bg: #fefce8;
+  /* Server type badges */
+  --color-badge-paper: #10b981;
+  --color-badge-paper-bg: #d1fae5;
+  --color-badge-vanilla: #f59e0b;
+  --color-badge-vanilla-bg: #fef3c7;
+  --color-badge-spigot: #3b82f6;
+  --color-badge-spigot-bg: #dbeafe;
+  --color-badge-fabric: #8b5cf6;
+  --color-badge-fabric-bg: #ede9fe;
+  --color-badge-custom: #6b7280;
+  --color-badge-custom-bg: #f3f4f6;
+  /* Shadows */
+  --shadow-app-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-app-card-hover: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-app-dropdown: 0 10px 25px rgba(0,0,0,0.1), 0 4px 10px rgba(0,0,0,0.05);
 }
 
-/* Base */
+/* ── Dark theme overrides ── */
+.dark {
+  --color-app-bg: #0f1117;
+  --color-app-surface: #1a1d27;
+  --color-app-surface-elevated: #222532;
+  --color-app-border: #2d3142;
+  --color-app-border-light: #1f2233;
+  --color-app-border-hover: #3d4155;
+  --color-app-text: #e5e7eb;
+  --color-app-text-secondary: #9ca3af;
+  --color-app-text-muted: #6b7280;
+  --color-app-accent: #34d399;
+  --color-app-accent-hover: #10b981;
+  --color-app-accent-bg: rgba(16,185,129,0.12);
+  --color-app-accent-border: rgba(52,211,153,0.3);
+  --color-app-sidebar: #13151e;
+  --color-app-sidebar-hover: #1a1d27;
+  --color-app-sidebar-active: rgba(16,185,129,0.12);
+  --color-app-input: #1a1d27;
+  --color-app-input-focus: #222532;
+  --color-app-console-bg: #111318;
+  --color-app-console-text: #cdd6f4;
+  --color-app-green: #4ade80;
+  --color-app-green-bg: rgba(34,197,94,0.12);
+  --color-app-amber: #fbbf24;
+  --color-app-amber-bg: rgba(245,158,11,0.12);
+  --color-app-red: #f87171;
+  --color-app-red-bg: rgba(239,68,68,0.12);
+  --color-app-blue: #60a5fa;
+  --color-app-blue-bg: rgba(59,130,246,0.12);
+  --color-app-purple: #a78bfa;
+  --color-app-purple-bg: rgba(139,92,246,0.12);
+  --color-app-gold: #facc15;
+  --color-app-gold-bg: rgba(234,179,8,0.12);
+  --color-badge-paper: #34d399;
+  --color-badge-paper-bg: rgba(16,185,129,0.15);
+  --color-badge-vanilla: #fbbf24;
+  --color-badge-vanilla-bg: rgba(245,158,11,0.15);
+  --color-badge-spigot: #60a5fa;
+  --color-badge-spigot-bg: rgba(59,130,246,0.15);
+  --color-badge-fabric: #a78bfa;
+  --color-badge-fabric-bg: rgba(139,92,246,0.15);
+  --color-badge-custom: #9ca3af;
+  --color-badge-custom-bg: rgba(107,114,128,0.15);
+  --shadow-app-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-app-card-hover: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-app-dropdown: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+/* ── Base ── */
+html {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--color-app-bg);
@@ -39,37 +119,37 @@ body {
   text-rendering: geometricPrecision;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d4d1ca; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #b8b4aa; }
+::-webkit-scrollbar-thumb { background: var(--color-app-border-hover); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-app-text-muted); }
 
-/* Focus ring */
+/* ── Focus ring ── */
 *:focus-visible {
   outline: 2px solid var(--color-app-accent);
   outline-offset: 2px;
 }
 
-/* Selection */
+/* ── Selection ── */
 ::selection {
   background: var(--color-app-accent-bg);
   color: var(--color-app-accent);
 }
 
-/* Transitions */
-*, *::before, *::after {
-  transition-property: background-color, border-color, color, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+/* ── Transitions (selective) ── */
+.transition-theme,
+.transition-theme *,
+.transition-theme *::before,
+.transition-theme *::after {
+  transition: background-color 200ms ease, border-color 200ms ease, color 150ms ease, box-shadow 200ms ease;
 }
 
-/* Reset transition on elements where it's disruptive */
 input, textarea, select, .no-transition {
-  transition-duration: 0ms;
+  transition-duration: 0ms !important;
 }
 
-/* Animations */
+/* ── Animations ── */
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -80,11 +160,306 @@ input, textarea, select, .no-transition {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 @keyframes pulse-subtle {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
 }
 
-.animate-fade-in { animation: fade-in 0.3s ease-out; }
-.animate-slide-up { animation: slide-up 0.4s ease-out; }
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in { animation: fade-in 0.25s ease-out; }
+.animate-slide-up { animation: slide-up 0.3s ease-out; }
+.animate-slide-in-right { animation: slide-in-right 0.3s ease-out; }
 .animate-pulse-subtle { animation: pulse-subtle 2s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 1.5s linear infinite; }
+
+/* ── Console-specific styling ── */
+.console-output {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.console-output .log-warn { color: var(--color-app-amber); }
+.console-output .log-error { color: var(--color-app-red); }
+.console-output .log-info { color: var(--color-app-blue); }
+.console-output .log-success { color: var(--color-app-green); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Minecraft Themes
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── mc-classic: 经典像素风 (Classic Pixel Art) ── */
+.mc-classic {
+  /* Typography - 像素字体 */
+  --font-family-sans: 'VT323', monospace;
+  --font-family-mono: 'Press Start 2P', monospace;
+  
+  /* Colors - 经典 Minecraft UI 配色 */
+  --color-app-bg: #2D2D2D;
+  --color-app-surface: #373737;
+  --color-app-surface-elevated: #404040;
+  --color-app-border: #1E1E1E;
+  --color-app-border-light: #252525;
+  --color-app-border-hover: #555555;
+  --color-app-text: #E0E0E0;
+  --color-app-text-secondary: #A0A0A0;
+  --color-app-text-muted: #6B6B6B;
+  --color-app-accent: #5B8731;
+  --color-app-accent-hover: #4A6F28;
+  --color-app-accent-bg: rgba(91, 135, 49, 0.15);
+  --color-app-accent-border: rgba(91, 135, 49, 0.4);
+  --color-app-sidebar: #C6C6C6;
+  --color-app-sidebar-hover: #D4D4D4;
+  --color-app-sidebar-active: rgba(91, 135, 49, 0.2);
+  --color-app-input: #2D2D2D;
+  --color-app-input-focus: #373737;
+  --color-app-console-bg: #1A1A1A;
+  --color-app-console-text: #00FF00;
+  --color-app-green: #5B8731;
+  --color-app-green-bg: rgba(91, 135, 49, 0.2);
+  --color-app-amber: #FED83D;
+  --color-app-amber-bg: rgba(254, 216, 61, 0.15);
+  --color-app-red: #B02E26;
+  --color-app-red-bg: rgba(176, 46, 38, 0.15);
+  --color-app-blue: #2CBCB5;
+  --color-app-blue-bg: rgba(44, 188, 181, 0.15);
+  --color-app-purple: #C74EBD;
+  --color-app-purple-bg: rgba(199, 78, 189, 0.15);
+  --color-app-gold: #FED83D;
+  --color-app-gold-bg: rgba(254, 216, 61, 0.15);
+  
+  /* Server type badges */
+  --color-badge-paper: #5B8731;
+  --color-badge-paper-bg: rgba(91, 135, 49, 0.2);
+  --color-badge-vanilla: #FED83D;
+  --color-badge-vanilla-bg: rgba(254, 216, 61, 0.2);
+  --color-badge-spigot: #2CBCB5;
+  --color-badge-spigot-bg: rgba(44, 188, 181, 0.2);
+  --color-badge-fabric: #C74EBD;
+  --color-badge-fabric-bg: rgba(199, 78, 189, 0.2);
+  --color-badge-custom: #866043;
+  --color-badge-custom-bg: rgba(134, 96, 67, 0.2);
+  
+  /* Shadows - 像素化 3D 边框效果 */
+  --shadow-app-card: 
+    inset -2px -2px 0px #1E1E1E,
+    inset 2px 2px 0px #555555,
+    inset -4px -4px 0px #252525,
+    inset 4px 4px 0px #4A4A4A;
+  --shadow-app-card-hover: 
+    inset -2px -2px 0px #1E1E1E,
+    inset 2px 2px 0px #6A6A6A,
+    inset -4px -4px 0px #252525,
+    inset 4px 4px 0px #555555;
+  --shadow-app-dropdown: 
+    0 0 0 2px #1E1E1E,
+    0 0 0 4px #555555,
+    0 8px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* mc-classic 特殊样式 */
+.mc-classic body {
+  background-image: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+}
+
+.mc-classic .rounded-lg,
+.mc-classic .rounded-md {
+  border-radius: 0 !important;
+}
+
+.mc-classic h1,
+.mc-classic h2,
+.mc-classic h3,
+.mc-classic h4,
+.mc-classic h5,
+.mc-classic h6 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.75em;
+  letter-spacing: 0.05em;
+}
+
+/* ── mc-modern: 现代融合 (Modern Pixel Fusion) ── */
+.mc-modern {
+  /* Typography - 保持现代字体 */
+  --font-family-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  
+  /* Colors - 现代暗色 + Minecraft 绿 */
+  --color-app-bg: #0f1117;
+  --color-app-surface: #1a1d27;
+  --color-app-surface-elevated: #222532;
+  --color-app-border: #2d3142;
+  --color-app-border-light: #1f2233;
+  --color-app-border-hover: #3d4155;
+  --color-app-text: #e5e7eb;
+  --color-app-text-secondary: #9ca3af;
+  --color-app-text-muted: #6b7280;
+  --color-app-accent: #5B8731;
+  --color-app-accent-hover: #4A6F28;
+  --color-app-accent-bg: rgba(91, 135, 49, 0.12);
+  --color-app-accent-border: rgba(91, 135, 49, 0.3);
+  --color-app-sidebar: #13151e;
+  --color-app-sidebar-hover: #1a1d27;
+  --color-app-sidebar-active: rgba(91, 135, 49, 0.12);
+  --color-app-input: #1a1d27;
+  --color-app-input-focus: #222532;
+  --color-app-console-bg: #111318;
+  --color-app-console-text: #cdd6f4;
+  --color-app-green: #5B8731;
+  --color-app-green-bg: rgba(91, 135, 49, 0.12);
+  --color-app-amber: #FED83D;
+  --color-app-amber-bg: rgba(254, 216, 61, 0.12);
+  --color-app-red: #B02E26;
+  --color-app-red-bg: rgba(176, 46, 38, 0.12);
+  --color-app-blue: #2CBCB5;
+  --color-app-blue-bg: rgba(44, 188, 181, 0.12);
+  --color-app-purple: #C74EBD;
+  --color-app-purple-bg: rgba(199, 78, 189, 0.12);
+  --color-app-gold: #FED83D;
+  --color-app-gold-bg: rgba(254, 216, 61, 0.12);
+  
+  /* Server type badges */
+  --color-badge-paper: #5B8731;
+  --color-badge-paper-bg: rgba(91, 135, 49, 0.15);
+  --color-badge-vanilla: #FED83D;
+  --color-badge-vanilla-bg: rgba(254, 216, 61, 0.15);
+  --color-badge-spigot: #2CBCB5;
+  --color-badge-spigot-bg: rgba(44, 188, 181, 0.15);
+  --color-badge-fabric: #C74EBD;
+  --color-badge-fabric-bg: rgba(199, 78, 189, 0.15);
+  --color-badge-custom: #866043;
+  --color-badge-custom-bg: rgba(134, 96, 67, 0.15);
+  
+  /* Shadows - 现代阴影 + 像素化左侧色条 */
+  --shadow-app-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-app-card-hover: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-app-dropdown: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+/* mc-modern 特殊样式 - 极淡方块网格 */
+.mc-modern body {
+  background-image: 
+    linear-gradient(rgba(91, 135, 49, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 135, 49, 0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* mc-modern 卡片左侧像素化色条 */
+.mc-modern .shadow-app-card {
+  position: relative;
+}
+
+.mc-modern .shadow-app-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--color-app-accent);
+  border-radius: 8px 0 0 8px;
+}
+
+/* mc-classic 侧边栏文字对比度修复 — 浅色物品栏背景 + 深色文字 */
+.mc-classic aside.bg-app-sidebar {
+  color: #2D2D2D;
+}
+
+.mc-classic aside.bg-app-sidebar .text-app-text {
+  color: #1A1A1A;
+}
+
+.mc-classic aside.bg-app-sidebar .text-app-text-secondary {
+  color: #3E3E3E;
+}
+
+.mc-classic aside.bg-app-sidebar .text-app-text-muted {
+  color: #6B6B6B;
+}
+
+.mc-classic aside.bg-app-sidebar .text-app-accent {
+  color: #3D6B1F;
+}
+
+.mc-classic aside.bg-app-sidebar .bg-app-sidebar-hover {
+  background-color: #B8B8B8;
+}
+
+.mc-classic aside.bg-app-sidebar .bg-app-sidebar-active {
+  background-color: rgba(91, 135, 49, 0.25);
+}
+
+.mc-classic aside.bg-app-sidebar .border-app-border {
+  border-color: #9E9E9E;
+}
+
+/* mc-classic 按钮像素化阴影 */
+.mc-classic button.bg-app-accent {
+  box-shadow:
+    inset -2px -2px 0px rgba(0,0,0,0.3),
+    inset 2px 2px 0px rgba(255,255,255,0.15);
+  border-radius: 0;
+  image-rendering: pixelated;
+}
+
+.mc-classic button.bg-app-accent:hover {
+  box-shadow:
+    inset -2px -2px 0px rgba(0,0,0,0.4),
+    inset 2px 2px 0px rgba(255,255,255,0.2);
+}
+
+/* mc-classic 输入框凹陷效果 */
+.mc-classic input,
+.mc-classic textarea,
+.mc-classic select {
+  box-shadow:
+    inset 2px 2px 0px rgba(0,0,0,0.3),
+    inset -2px -2px 0px rgba(255,255,255,0.1);
+  border-radius: 0;
+  font-family: 'VT323', monospace;
+}
+
+/* mc-classic 卡片凸起边框 */
+.mc-classic .bg-app-surface {
+  box-shadow:
+    inset -2px -2px 0px #1E1E1E,
+    inset 2px 2px 0px #555555;
+}
+
+/* mc-classic 控制台聊天框风格 */
+.mc-classic .console-output {
+  background: #000000 !important;
+  border: 3px solid #555555;
+  box-shadow:
+    inset 2px 2px 0px rgba(0,0,0,0.5),
+    inset -2px -2px 0px rgba(255,255,255,0.05);
+}
+
+/* mc-classic 状态指示器方块化 */
+.mc-classic .rounded-sm {
+  border-radius: 0 !important;
+}
+
+/* mc-classic 滚动条像素化 */
+.mc-classic ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: #555555;
+  border: 1px solid #1E1E1E;
+}
