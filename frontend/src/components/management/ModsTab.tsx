@@ -5,6 +5,7 @@ import {
   getMods,
   getPluginMarketDetails,
   getPluginMarketVersions,
+  installPluginFromMarket,
   listFiles,
   scanMods,
   searchPluginMarket,
@@ -122,6 +123,8 @@ export function ModsTab({ instanceId, serverType }: Props) {
   const [detailsById, setDetailsById] = useState<Record<string, PluginMarketDetails>>({});
   const [versionsById, setVersionsById] = useState<Record<string, PluginMarketVersion[]>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [installingVersionId, setInstallingVersionId] = useState<string | null>(null);
+  const [installedMessage, setInstalledMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const marketAutoSearchKeyRef = useRef<string | null>(null);
 
@@ -202,6 +205,23 @@ export function ModsTab({ instanceId, serverType }: Props) {
       setMarketError(err.message);
     } finally {
       setDetailLoadingId(null);
+    }
+  };
+
+  const handleInstallVersion = async (entry: PluginMarketResult, version: PluginMarketVersion) => {
+    const key = `${entry.provider}:${entry.id}:${version.id}`;
+    setInstallingVersionId(key);
+    setMarketError(null);
+    setInstalledMessage(null);
+    try {
+      const result = await installPluginFromMarket(instanceId, entry.provider, entry.id, version.id);
+      setMods(result.mods);
+      setInstalledMessage(t('mods.installedFile', { file: result.fileName }));
+      setView('installed');
+    } catch (err: any) {
+      setMarketError(err.message);
+    } finally {
+      setInstallingVersionId(null);
     }
   };
 
@@ -404,6 +424,12 @@ export function ModsTab({ instanceId, serverType }: Props) {
             </form>
           </div>
 
+          {installedMessage && (
+            <div className="rounded-lg border border-green-200 bg-app-green-bg p-3 text-sm text-app-green">
+              {installedMessage}
+            </div>
+          )}
+
           {marketError && (
             <div className="rounded-lg border border-red-200 bg-app-red-bg p-3 text-sm text-red-700">
               {marketError}
@@ -522,15 +548,28 @@ export function ModsTab({ instanceId, serverType }: Props) {
                                         {version.supportedVersions.length > 0 && <span>{truncateList(version.supportedVersions, 4)}</span>}
                                       </div>
                                     </div>
-                                    {version.downloadUrl && (
+                                    {version.installable ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleInstallVersion(entry, version)}
+                                        disabled={installingVersionId !== null}
+                                        className="flex-shrink-0 rounded-md bg-app-accent px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-app-accent-hover disabled:opacity-50"
+                                      >
+                                        {installingVersionId === `${entry.provider}:${entry.id}:${version.id}` ? t('mods.installing') : t('mods.install')}
+                                      </button>
+                                    ) : version.downloadUrl ? (
                                       <a
                                         href={version.downloadUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="flex-shrink-0 rounded-md bg-app-accent-bg px-2.5 py-1 text-xs font-semibold text-app-accent transition-colors hover:bg-app-accent-border"
+                                        className="flex-shrink-0 rounded-md bg-app-amber-bg px-2.5 py-1 text-xs font-semibold text-app-amber transition-colors hover:bg-amber-100"
                                       >
-                                        {t('mods.download')}
+                                        {t(version.external ? 'mods.manualDownload' : 'mods.download')}
                                       </a>
+                                    ) : (
+                                      <span className="flex-shrink-0 rounded-md bg-app-surface px-2.5 py-1 text-xs font-medium text-app-text-muted">
+                                        {t('mods.notInstallable')}
+                                      </span>
                                     )}
                                   </div>
                                 ))}
@@ -552,6 +591,12 @@ export function ModsTab({ instanceId, serverType }: Props) {
 
       {view === 'installed' && (
         <>
+      {installedMessage && (
+        <div className="mb-4 rounded-lg border border-green-200 bg-app-green-bg p-3 text-sm text-app-green">
+          {installedMessage}
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-app-red-bg border border-red-200 text-red-700 text-sm flex items-center justify-between">
@@ -581,11 +626,11 @@ export function ModsTab({ instanceId, serverType }: Props) {
       {/* Mod list */}
       {!loading && mods.length > 0 && (
         <div className="space-y-2">
-          {mods.map((entry) => {
+          {mods.map((entry, index) => {
             const badge = loaderBadge(entry.loader, t);
             return (
               <div
-                key={entry.fileName}
+                key={`${entry.fileName}:${index}`}
                 className={`rounded-lg border transition-colors ${
                   entry.disabled
                     ? 'bg-app-amber-bg/30 border-amber-100'

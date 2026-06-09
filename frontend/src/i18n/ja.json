@@ -341,7 +341,12 @@
     "loadingDetails": "詳細を読み込み中...",
     "openProject": "プロジェクトページを開く",
     "license": "ライセンス",
-    "noVersions": "利用可能なバージョンはありません"
+    "noVersions": "利用可能なバージョンはありません",
+    "install": "インストール",
+    "installing": "インストール中...",
+    "manualDownload": "手動ダウンロード",
+    "notInstallable": "インストール不可",
+    "installedFile": "{{file}} をインストールしました"
   },
   "serverTypes": {
     "paper": "Paper",

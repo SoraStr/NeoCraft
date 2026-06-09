@@ -129,7 +129,7 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   await server.register(instanceRoutes, { ipc });
   await server.register(configRoutes, { ipc });
   await server.register(versionRoutes, { versionService });
-  await server.register(pluginMarketRoutes, { service: pluginMarketService });
+  await server.register(pluginMarketRoutes, { service: pluginMarketService, ipc });
 
   if (existsSync(runtimeConfig.frontendDist)) {
     await server.register(fastifyStatic, {

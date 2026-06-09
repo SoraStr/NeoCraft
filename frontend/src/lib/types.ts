@@ -140,4 +140,26 @@ export interface PluginMarketVersion {
   fileSize?: number;
   downloadUrl?: string;
   channel?: string;
+  installable: boolean;
+  external: boolean;
+}
+
+export interface PluginInstallResult {
+  fileName: string;
+  path: string;
+  size: number;
+  provider: PluginMarketProvider;
+  projectId: string;
+  versionId: string;
+  mods: Array<{
+    fileName: string;
+    name: string;
+    modid: string;
+    version: string;
+    loader: string;
+    size: number;
+    disabled: boolean;
+    description?: string;
+    authors?: string[];
+  }>;
 }

@@ -344,7 +344,12 @@
     "loadingDetails": "正在加载详情...",
     "openProject": "打开项目页",
     "license": "许可证",
-    "noVersions": "暂无可用版本"
+    "noVersions": "暂无可用版本",
+    "install": "安装",
+    "installing": "安装中...",
+    "manualDownload": "手动下载",
+    "notInstallable": "不可安装",
+    "installedFile": "已安装 {{file}}"
   },
   "serverTypes": {
     "paper": "Paper",

@@ -4,17 +4,20 @@ import {
   PluginMarketService,
   type PluginMarketProvider,
 } from '../services/plugin-market-service.js';
-import { httpError, sendRouteError } from './http.js';
+import { scanMods } from '../services/mod-service.js';
+import { IpcClient } from '../services/ipc-client.js';
+import { assertInstanceId, httpError, sendRouteError } from './http.js';
 
 interface PluginMarketRouteOptions {
   service: PluginMarketService;
+  ipc: IpcClient;
 }
 
 export const pluginMarketRoutes: FastifyPluginAsync<PluginMarketRouteOptions> = async (
   app: FastifyInstance,
   opts: PluginMarketRouteOptions,
 ) => {
-  const { service } = opts;
+  const { service, ipc } = opts;
 
   app.get('/api/plugin-market/search', async (request, reply) => {
     try {
@@ -48,6 +51,26 @@ export const pluginMarketRoutes: FastifyPluginAsync<PluginMarketRouteOptions> = 
       return sendPluginMarketError(reply, error);
     }
   });
+
+  app.post('/api/instances/:id/plugin-market/install', async (request, reply) => {
+    try {
+      const { id } = request.params as { id?: string };
+      const body = (request.body || {}) as { provider?: unknown; projectId?: unknown; versionId?: unknown };
+      const instanceId = assertInstanceId(id || '');
+      const installResult = await service.installPlugin(ipc, instanceId, {
+        provider: assertProvider(body.provider),
+        projectId: assertProjectId(body.projectId),
+        versionId: assertVersionId(body.versionId),
+      });
+      const mods = await scanMods(ipc, instanceId);
+      return {
+        ...installResult,
+        mods,
+      };
+    } catch (error) {
+      return sendPluginMarketError(reply, error);
+    }
+  });
 };
 
 function assertProvider(value: unknown): PluginMarketProvider {
@@ -68,6 +91,13 @@ function assertQuery(value: unknown): string {
 function assertProjectId(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > 160) {
     httpError(400, 'Invalid plugin market project ID.');
+  }
+  return value.trim();
+}
+
+function assertVersionId(value: unknown): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 160) {
+    httpError(400, 'Invalid plugin market version ID.');
   }
   return value.trim();
 }

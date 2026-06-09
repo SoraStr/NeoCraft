@@ -37,10 +37,36 @@ export interface PluginMarketVersion {
   fileSize?: number;
   downloadUrl?: string;
   channel?: string;
+  installable: boolean;
+  external: boolean;
+}
+
+export interface PluginInstallSelection {
+  provider: PluginMarketProvider;
+  projectId: string;
+  versionId: string;
+}
+
+export interface PluginInstallResult {
+  fileName: string;
+  path: string;
+  size: number;
+  provider: PluginMarketProvider;
+  projectId: string;
+  versionId: string;
+  mods: unknown[];
 }
 
 interface FetchLike {
   (input: string | URL, init?: RequestInit): Promise<Response>;
+}
+
+interface IpcLike {
+  request(
+    method: string,
+    params: Record<string, unknown>,
+    options?: { timeout?: number },
+  ): Promise<{ result?: unknown; error?: { code: string; message: string } }>;
 }
 
 interface ServiceOptions {
@@ -59,6 +85,12 @@ const MODRINTH_SITE = 'https://modrinth.com/plugin';
 const USER_AGENT = 'NeoCraft/0.1 (Plugin Market)';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
+const MAX_PLUGIN_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+const INSTALLABLE_HOSTS = new Map<PluginMarketProvider, Set<string>>([
+  ['modrinth', new Set(['cdn.modrinth.com'])],
+  ['hangar', new Set(['hangarcdn.papermc.io'])],
+  ['spiget', new Set(['api.spiget.org', 'cdn.spiget.org'])],
+]);
 
 export class PluginMarketService {
   private readonly fetchFn: FetchLike;
@@ -109,6 +141,46 @@ export class PluginMarketService {
       case 'hangar':
         return this.getHangarVersions(id, size);
     }
+  }
+
+  async installPlugin(
+    ipc: IpcLike,
+    instanceId: string,
+    selection: PluginInstallSelection,
+  ): Promise<PluginInstallResult> {
+    const provider = selection.provider;
+    const projectId = selection.projectId.trim();
+    const versionId = selection.versionId.trim();
+    if (!projectId || !versionId) throw new Error('Missing plugin project or version ID.');
+
+    const versions = await this.getVersions(provider, projectId, MAX_LIMIT);
+    const version = versions.find((entry) => entry.id === versionId);
+    if (!version) throw new Error('Plugin version not found.');
+
+    const downloadUrl = version.downloadUrl;
+    if (!downloadUrl || !isInstallableUrl(provider, downloadUrl)) {
+      throw new Error('This plugin version is not installable from a trusted direct download URL.');
+    }
+
+    const fileName = sanitizeJarFileName(version.fileName || `${safeName(version.name || versionId)}.jar`);
+    const bytes = await this.downloadPluginBytes(provider, downloadUrl);
+    const path = await uniquePluginPath(ipc, instanceId, fileName);
+    const finalFileName = path.slice('plugins/'.length);
+    await ipcCall(ipc, 'files.write', {
+      instance_id: instanceId,
+      path,
+      data: Buffer.from(bytes).toString('base64'),
+    }, 120000);
+
+    return {
+      fileName: finalFileName,
+      path,
+      size: bytes.length,
+      provider,
+      projectId,
+      versionId,
+      mods: [],
+    };
   }
 
   private async searchSpiget(query: string, limit: number): Promise<PluginMarketResult[]> {
@@ -202,6 +274,40 @@ export class PluginMarketService {
 
     return await res.json() as T;
   }
+
+  private async downloadPluginBytes(provider: PluginMarketProvider, url: string): Promise<Buffer> {
+    const res = await this.fetchFn(url, {
+      headers: {
+        Accept: 'application/java-archive, application/octet-stream, */*',
+        'User-Agent': USER_AGENT,
+      },
+      redirect: 'follow',
+    });
+
+    if (!res.ok) {
+      throw new Error(`Plugin download failed: HTTP ${res.status}`);
+    }
+
+    const finalUrl = res.url || url;
+    if (!isInstallableUrl(provider, finalUrl)) {
+      throw new Error('Plugin download redirected to an untrusted host.');
+    }
+
+    const length = Number.parseInt(res.headers.get('content-length') || '', 10);
+    if (Number.isFinite(length) && length > MAX_PLUGIN_DOWNLOAD_BYTES) {
+      throw new Error('Plugin file is too large (max 50 MB).');
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > MAX_PLUGIN_DOWNLOAD_BYTES) {
+      throw new Error('Plugin file is too large (max 50 MB).');
+    }
+    if (buffer.length === 0) {
+      throw new Error('Plugin download was empty.');
+    }
+
+    return buffer;
+  }
 }
 
 export function parsePluginMarketProvider(value: unknown): PluginMarketProvider {
@@ -251,6 +357,7 @@ function mapSpigetDetails(item: JsonObject): PluginMarketDetails {
 
 function mapSpigetVersion(item: JsonObject, resourceId: string): PluginMarketVersion {
   const id = stringOrNumber(getProp(item, 'id'));
+  const downloadUrl = `${SPIGET_API}/resources/${resourceId}/versions/${id}/download`;
   return {
     provider: 'spiget',
     id,
@@ -259,7 +366,9 @@ function mapSpigetVersion(item: JsonObject, resourceId: string): PluginMarketVer
     releasedAt: timestampSecondsToIso(getProp(item, 'releaseDate')),
     supportedVersions: [],
     supportedPlatforms: ['Spigot', 'Paper'],
-    downloadUrl: `${SPIGET_API}/resources/${resourceId}/versions/${id}/download`,
+    downloadUrl,
+    installable: isInstallableUrl('spiget', downloadUrl),
+    external: false,
   };
 }
 
@@ -334,6 +443,8 @@ function mapModrinthVersion(item: JsonObject): PluginMarketVersion {
     fileSize: numberValue(getProp(primaryFile, 'size')),
     downloadUrl: stringValue(getProp(primaryFile, 'url')) || undefined,
     channel: stringValue(getProp(item, 'version_type')) || undefined,
+    installable: isInstallableUrl('modrinth', stringValue(getProp(primaryFile, 'url'))),
+    external: false,
   };
 }
 
@@ -378,6 +489,7 @@ function mapHangarVersion(item: JsonObject): PluginMarketVersion {
   const paperDownload = firstNonEmptyObject(getProp(downloads, 'PAPER'), ...Object.values(downloads));
   const fileInfo = asObject(getProp(paperDownload, 'fileInfo'));
   const channel = asObject(getProp(item, 'channel'));
+  const downloadUrl = stringValue(getProp(paperDownload, 'downloadUrl')) || stringValue(getProp(paperDownload, 'externalUrl')) || undefined;
 
   return {
     provider: 'hangar',
@@ -389,8 +501,10 @@ function mapHangarVersion(item: JsonObject): PluginMarketVersion {
     supportedPlatforms: Object.keys(asObject(getProp(item, 'downloads'))).map(titleCase),
     fileName: stringValue(getProp(fileInfo, 'name')) || undefined,
     fileSize: numberValue(getProp(fileInfo, 'sizeBytes')),
-    downloadUrl: stringValue(getProp(paperDownload, 'downloadUrl')) || stringValue(getProp(paperDownload, 'externalUrl')) || undefined,
+    downloadUrl,
     channel: stringValue(getProp(channel, 'name')) || undefined,
+    installable: Boolean(downloadUrl && isInstallableUrl('hangar', downloadUrl)),
+    external: Boolean(getProp(paperDownload, 'externalUrl')),
   };
 }
 
@@ -499,4 +613,60 @@ function titleCase(value: string): string {
 function clampLimit(limit: number): number {
   if (!Number.isFinite(limit)) return DEFAULT_LIMIT;
   return Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
+}
+
+async function ipcCall<T = unknown>(
+  ipc: IpcLike,
+  method: string,
+  params: Record<string, unknown>,
+  timeout = 30000,
+): Promise<T> {
+  const response = await ipc.request(method, params, { timeout });
+  if (response.error) throw new Error(response.error.message);
+  return response.result as T;
+}
+
+async function uniquePluginPath(ipc: IpcLike, instanceId: string, desiredFileName: string): Promise<string> {
+  const existing = await ipcCall<Array<{ name?: unknown }>>(ipc, 'files.list', {
+    instance_id: instanceId,
+    path: 'plugins',
+  }).catch(() => []);
+  const existingNames = new Set(existing.map((entry) => String(entry.name || '').toLowerCase()));
+  if (!existingNames.has(desiredFileName.toLowerCase())) return `plugins/${desiredFileName}`;
+
+  const stem = desiredFileName.replace(/\.jar$/i, '');
+  for (let index = 2; index <= 99; index += 1) {
+    const candidate = `${stem}-${index}.jar`;
+    if (!existingNames.has(candidate.toLowerCase())) return `plugins/${candidate}`;
+  }
+
+  throw new Error('Too many installed files with the same plugin name.');
+}
+
+function isInstallableUrl(provider: PluginMarketProvider, value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== 'https:') return false;
+  return INSTALLABLE_HOSTS.get(provider)?.has(url.hostname.toLowerCase()) ?? false;
+}
+
+function sanitizeJarFileName(fileName: string): string {
+  const withoutPath = fileName.split(/[\\/]/).filter(Boolean).pop() || 'plugin.jar';
+  const withJar = withoutPath.toLowerCase().endsWith('.jar') ? withoutPath : `${withoutPath}.jar`;
+  const cleaned = withJar
+    .replace(/[^a-zA-Z0-9._ -]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^\.+/, '')
+    .slice(0, 120);
+  return cleaned && cleaned !== '.jar' ? cleaned : 'plugin.jar';
+}
+
+function safeName(value: string): string {
+  return value.trim() || 'plugin';
 }

@@ -2,6 +2,7 @@ import type {
   CreateInstanceInput,
   FabricVersionMeta,
   Instance,
+  PluginInstallResult,
   PluginMarketDetails,
   PluginMarketProvider,
   PluginMarketResult,
@@ -327,4 +328,17 @@ export async function getPluginMarketVersions(
     `/plugin-market/${provider}/projects/${encodeURIComponent(projectId)}/versions`,
     { timeoutMs: 20000 },
   );
+}
+
+export async function installPluginFromMarket(
+  instanceId: string,
+  provider: PluginMarketProvider,
+  projectId: string,
+  versionId: string,
+): Promise<PluginInstallResult> {
+  return request<PluginInstallResult>(`/instances/${instanceId}/plugin-market/install`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, projectId, versionId }),
+    timeoutMs: 180000,
+  });
 }
