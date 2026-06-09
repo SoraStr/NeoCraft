@@ -1,5 +1,5 @@
 import { readFabricMod, readForgeMod } from '@xmcl/mod-parser';
-import { openFileSystem } from '@xmcl/system';
+import JSZip from 'jszip';
 import { IpcClient } from './ipc-client.js';
 
 export interface ModInfo {
@@ -48,23 +48,15 @@ async function readBukkitPlugin(jarBuffer: Buffer): Promise<{
   authors?: string[];
   apiVersion?: string;
 } | null> {
-  let fs;
   try {
-    fs = await openFileSystem(new Uint8Array(jarBuffer));
-  } catch {
-    return null; // Not a valid ZIP/JAR
-  }
+    const zip = await JSZip.loadAsync(jarBuffer);
+    const pluginYml = zip.file('plugin.yml');
+    if (!pluginYml) return null;
 
-  try {
-    const hasPluginYml = await fs.existsFile('plugin.yml');
-    if (!hasPluginYml) return null;
-
-    const content = await fs.readFile('plugin.yml', 'utf-8');
+    const content = await pluginYml.async('string');
     return parsePluginYml(content);
   } catch {
     return null;
-  } finally {
-    try { fs.close(); } catch { /* ignore */ }
   }
 }
 
@@ -87,7 +79,7 @@ function parsePluginYml(content: string): {
   let currentListKey: string | null = null;
 
   for (const rawLine of lines) {
-    // Strip comments (not inside quoted strings — but plugin.yml rarely uses them)
+    // Strip comments (not inside quoted strings, but plugin.yml rarely uses them)
     const line = rawLine.split('#')[0];
     const trimmed = line.trimEnd();
     if (trimmed === '' || trimmed.startsWith('#')) continue;
@@ -95,7 +87,7 @@ function parsePluginYml(content: string): {
     // Indented lines: part of a list
     if (rawLine.startsWith(' ') || rawLine.startsWith('\t')) {
       if (currentListKey) {
-        const item = trimmed
+        const item = trimmed.trimStart()
           .replace(/^- /, '')
           .replace(/^["']|["']$/g, '')
           .trim();
@@ -140,7 +132,7 @@ function parsePluginYml(content: string): {
 
   if (typeof values.description === 'string') result.description = values.description;
   if (typeof values.author === 'string') result.author = values.author;
-  if (typeof values.api_version === 'string') result.apiVersion = values.api_version;
+  if (typeof values['api-version'] === 'string') result.apiVersion = values['api-version'];
 
   // Handle authors list
   const rawAuthors = values.authors;
@@ -229,7 +221,7 @@ export async function scanMods(
  * then Fabric, then Bukkit/Spigot/Paper (plugin.yml),
  * then falls back to basic file info instead of returning null.
  */
-async function parseModJar(
+export async function parseModJar(
   jarBuffer: Buffer,
   fileName: string,
   size: number,

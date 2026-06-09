@@ -80,6 +80,11 @@ function truncateList(values: string[], limit = 5): string {
   return values.length > limit ? `${shown} +${values.length - limit}` : shown;
 }
 
+function formatAuthors(authors: string[] | undefined): string {
+  if (!authors || authors.length === 0) return '';
+  return truncateList(authors.filter(Boolean), 3);
+}
+
 function providerLabel(provider: PluginMarketProvider): string {
   switch (provider) {
     case 'spiget': return 'Spiget';
@@ -548,7 +553,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
                                         {version.supportedVersions.length > 0 && <span>{truncateList(version.supportedVersions, 4)}</span>}
                                       </div>
                                     </div>
-                                    {version.installable ? (
+                                    {!version.external ? (
                                       <button
                                         type="button"
                                         onClick={() => handleInstallVersion(entry, version)}
@@ -628,6 +633,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
         <div className="space-y-2">
           {mods.map((entry, index) => {
             const badge = loaderBadge(entry.loader, t);
+            const authors = formatAuthors(entry.authors);
             return (
               <div
                 key={`${entry.fileName}:${index}`}
@@ -663,6 +669,11 @@ export function ModsTab({ instanceId, serverType }: Props) {
                         {entry.modid}
                       </span>
                       <span className="text-[11px] text-app-text-secondary">{formatSize(entry.size)}</span>
+                      {authors && (
+                        <span className="text-[11px] text-app-text-secondary truncate max-w-[220px]">
+                          {t('mods.authors')}: {authors}
+                        </span>
+                      )}
                       {entry.disabled && (
                         <span className="text-[11px] text-app-amber font-medium">{t('mods.disabled')}</span>
                       )}
