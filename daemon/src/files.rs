@@ -2,9 +2,11 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-use crate::management::{template_rcon_port, SMP_ALLOWED_ORIGINS};
+use crate::management::{SMP_ALLOWED_ORIGINS, template_rcon_port};
+use crate::protocol::Event;
 
 /// Generate a default server.properties content for a new instance.
 pub fn default_server_properties(port: u16, motd: &str) -> String {
@@ -124,7 +126,10 @@ pub async fn read_properties(path: &Path) -> Result<HashMap<String, String>, std
 
 /// Write a HashMap to a .properties file, preserving existing comments and structure.
 /// Keys that exist in the file are updated in-place; new keys are appended.
-pub async fn write_properties(path: &Path, props: &HashMap<String, String>) -> Result<(), std::io::Error> {
+pub async fn write_properties(
+    path: &Path,
+    props: &HashMap<String, String>,
+) -> Result<(), std::io::Error> {
     // Read original file lines to preserve comments and ordering
     let original_lines: Vec<String> = if path.exists() {
         let content = tokio::fs::read_to_string(path).await?;
@@ -186,4 +191,138 @@ pub async fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Recursively copy a directory while emitting progress events.
+pub async fn copy_dir_all_with_progress(
+    src: &Path,
+    dst: &Path,
+    task_id: String,
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
+) -> std::io::Result<u64> {
+    emit_copy_progress(event_tx, &task_id, 0, 0);
+    let mut copied = 0;
+    let mut discovered_total = 0;
+
+    let mut last_emit = Instant::now();
+    copy_dir_all_progress_inner(
+        src,
+        dst,
+        &task_id,
+        event_tx,
+        &mut discovered_total,
+        &mut copied,
+        &mut last_emit,
+    )
+    .await?;
+
+    emit_copy_progress(event_tx, &task_id, copied, discovered_total);
+    Ok(copied)
+}
+
+async fn copy_dir_all_progress_inner(
+    src: &Path,
+    dst: &Path,
+    task_id: &str,
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
+    discovered_total: &mut u64,
+    copied: &mut u64,
+    last_emit: &mut Instant,
+) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let file_type = entry.file_type().await?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            Box::pin(copy_dir_all_progress_inner(
+                &src_path,
+                &dst_path,
+                task_id,
+                event_tx,
+                discovered_total,
+                copied,
+                last_emit,
+            ))
+            .await?;
+        } else if file_type.is_symlink() {
+            tracing::warn!(path = %src_path.display(), "Skipping symlink in imported directory");
+        } else if !file_type.is_file() {
+            tracing::warn!(path = %src_path.display(), "Skipping non-regular file in imported directory");
+        } else {
+            let size = entry.metadata().await?.len();
+            *discovered_total = discovered_total.saturating_add(size);
+            if last_emit.elapsed() >= Duration::from_millis(100) {
+                emit_copy_progress(event_tx, task_id, *copied, *discovered_total);
+                *last_emit = Instant::now();
+            }
+            copy_file_with_progress(
+                &src_path,
+                &dst_path,
+                task_id,
+                event_tx,
+                *discovered_total,
+                copied,
+                last_emit,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn copy_file_with_progress(
+    src: &Path,
+    dst: &Path,
+    task_id: &str,
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
+    total: u64,
+    copied: &mut u64,
+    last_emit: &mut Instant,
+) -> std::io::Result<()> {
+    let mut input = tokio::fs::File::open(src).await?;
+    let mut output = tokio::fs::File::create(dst).await?;
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut emitted_first_chunk = false;
+
+    loop {
+        let read = input.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+
+        output.write_all(&buffer[..read]).await?;
+        *copied = copied.saturating_add(read as u64);
+
+        if !emitted_first_chunk || last_emit.elapsed() >= Duration::from_millis(100) {
+            emit_copy_progress(event_tx, task_id, *copied, total);
+            *last_emit = Instant::now();
+            emitted_first_chunk = true;
+        }
+    }
+
+    output.flush().await?;
+    Ok(())
+}
+
+fn emit_copy_progress(
+    event_tx: &tokio::sync::broadcast::Sender<Event>,
+    task_id: &str,
+    downloaded: u64,
+    total: u64,
+) {
+    let percent = if total > 0 {
+        (downloaded as f64 / total as f64 * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+    let _ = event_tx.send(Event::DownloadProgress {
+        task_id: task_id.to_string(),
+        downloaded,
+        total,
+        percent,
+        phase: Some("import".into()),
+        status: Some("copying".into()),
+    });
 }

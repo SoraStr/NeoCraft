@@ -2,17 +2,26 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   deleteFile,
+  getModMarketDetails,
+  getModMarketVersions,
   getMods,
   getPluginMarketDetails,
   getPluginMarketVersions,
+  installModFromMarket,
   installPluginFromMarket,
   listFiles,
   scanMods,
+  searchModMarket,
   searchPluginMarket,
   toggleFileDisabled,
   uploadFile,
 } from '../../lib/api';
 import type {
+  ModMarketDetails,
+  ModMarketLoader,
+  ModMarketProvider,
+  ModMarketResult,
+  ModMarketVersion,
   PluginMarketDetails,
   PluginMarketProvider,
   PluginMarketResult,
@@ -44,12 +53,20 @@ interface FileEntry {
 interface Props {
   instanceId: string;
   serverType: ServerType;
+  gameVersion?: string;
 }
 
 /* ── Helpers ── */
 
 const MOD_TYPES: ServerType[] = ['fabric', 'forge', 'custom'];
 const PLUGIN_TYPES: ServerType[] = ['paper', 'spigot'];
+const MOD_MARKET_TYPES: ServerType[] = ['fabric', 'forge'];
+
+type MarketKind = 'plugin' | 'mod';
+type MarketProvider = PluginMarketProvider | ModMarketProvider;
+type MarketResult = PluginMarketResult | ModMarketResult;
+type MarketDetails = PluginMarketDetails | ModMarketDetails;
+type MarketVersion = PluginMarketVersion | ModMarketVersion;
 
 function getDefaultDir(type: ServerType): string {
   if (MOD_TYPES.includes(type)) return 'mods';
@@ -93,6 +110,22 @@ function providerLabel(provider: PluginMarketProvider): string {
   }
 }
 
+function marketProviderLabel(provider: MarketProvider): string {
+  return providerLabel(provider as PluginMarketProvider);
+}
+
+function getModMarketLoader(type: ServerType): ModMarketLoader | null {
+  if (type === 'fabric') return 'fabric';
+  if (type === 'forge') return 'forge';
+  return null;
+}
+
+function getDefaultMarketQuery(type: ServerType): string {
+  if (type === 'fabric') return 'sodium';
+  if (type === 'forge') return 'jei';
+  return 'worldedit';
+}
+
 function loaderBadge(loader: string, t: (k: string) => string): { bg: string; text: string; label: string } {
   switch (loader) {
     case 'forge': return { bg: 'bg-orange-100', text: 'text-orange-700', label: t('mods.loaderForge') };
@@ -107,10 +140,12 @@ function loaderBadge(loader: string, t: (k: string) => string): { bg: string; te
 
 /* ── Component ── */
 
-export function ModsTab({ instanceId, serverType }: Props) {
+export function ModsTab({ instanceId, serverType, gameVersion }: Props) {
   const { t } = useTranslation();
   const defaultDir = getDefaultDir(serverType);
-  const supportsPluginMarket = PLUGIN_TYPES.includes(serverType);
+  const marketKind: MarketKind = MOD_MARKET_TYPES.includes(serverType) ? 'mod' : 'plugin';
+  const modMarketLoader = getModMarketLoader(serverType);
+  const supportsMarket = PLUGIN_TYPES.includes(serverType) || Boolean(modMarketLoader);
   const [dir, setDir] = useState(defaultDir);
   const [mods, setMods] = useState<ModInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,13 +155,13 @@ export function ModsTab({ instanceId, serverType }: Props) {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState<'installed' | 'market'>('installed');
   const [marketProvider, setMarketProvider] = useState<PluginMarketProvider>('modrinth');
-  const [marketQuery, setMarketQuery] = useState('worldedit');
-  const [marketResults, setMarketResults] = useState<PluginMarketResult[]>([]);
+  const [marketQuery, setMarketQuery] = useState(() => getDefaultMarketQuery(serverType));
+  const [marketResults, setMarketResults] = useState<MarketResult[]>([]);
   const [marketLoading, setMarketLoading] = useState(false);
   const [marketError, setMarketError] = useState<string | null>(null);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
-  const [detailsById, setDetailsById] = useState<Record<string, PluginMarketDetails>>({});
-  const [versionsById, setVersionsById] = useState<Record<string, PluginMarketVersion[]>>({});
+  const [detailsById, setDetailsById] = useState<Record<string, MarketDetails>>({});
+  const [versionsById, setVersionsById] = useState<Record<string, MarketVersion[]>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [installingVersionId, setInstallingVersionId] = useState<string | null>(null);
   const [installedMessage, setInstalledMessage] = useState<string | null>(null);
@@ -167,27 +202,31 @@ export function ModsTab({ instanceId, serverType }: Props) {
   const handleMarketSearch = useCallback(async () => {
     const query = marketQuery.trim();
     if (query.length < 2) return;
+    if (marketKind === 'mod' && !modMarketLoader) return;
     setMarketLoading(true);
     setMarketError(null);
     setExpandedProjectId(null);
     try {
-      const results = await searchPluginMarket(marketProvider, query);
+      const results = marketKind === 'mod'
+        ? await searchModMarket(modMarketLoader!, query, gameVersion)
+        : await searchPluginMarket(marketProvider, query);
       setMarketResults(results);
     } catch (err: any) {
       setMarketError(err.message);
     } finally {
       setMarketLoading(false);
     }
-  }, [marketProvider, marketQuery]);
+  }, [gameVersion, marketKind, marketProvider, marketQuery, modMarketLoader]);
 
   useEffect(() => {
-    if (!supportsPluginMarket || view !== 'market') return;
-    if (marketAutoSearchKeyRef.current === marketProvider) return;
-    marketAutoSearchKeyRef.current = marketProvider;
+    if (!supportsMarket || view !== 'market') return;
+    const autoSearchKey = `${marketKind}:${marketProvider}:${modMarketLoader ?? ''}:${gameVersion ?? ''}`;
+    if (marketAutoSearchKeyRef.current === autoSearchKey) return;
+    marketAutoSearchKeyRef.current = autoSearchKey;
     handleMarketSearch();
-  }, [handleMarketSearch, marketProvider, supportsPluginMarket, view]);
+  }, [gameVersion, handleMarketSearch, marketKind, marketProvider, modMarketLoader, supportsMarket, view]);
 
-  const handleExpandMarketResult = async (entry: PluginMarketResult) => {
+  const handleExpandMarketResult = async (entry: MarketResult) => {
     const key = `${entry.provider}:${entry.id}`;
     if (expandedProjectId === key) {
       setExpandedProjectId(null);
@@ -201,8 +240,12 @@ export function ModsTab({ instanceId, serverType }: Props) {
     setMarketError(null);
     try {
       const [details, versions] = await Promise.all([
-        getPluginMarketDetails(entry.provider, entry.id),
-        getPluginMarketVersions(entry.provider, entry.id),
+        marketKind === 'mod'
+          ? getModMarketDetails(entry.provider as ModMarketProvider, entry.id)
+          : getPluginMarketDetails(entry.provider as PluginMarketProvider, entry.id),
+        marketKind === 'mod'
+          ? getModMarketVersions(entry.provider as ModMarketProvider, entry.id, modMarketLoader!, gameVersion)
+          : getPluginMarketVersions(entry.provider as PluginMarketProvider, entry.id),
       ]);
       setDetailsById(prev => ({ ...prev, [key]: details }));
       setVersionsById(prev => ({ ...prev, [key]: versions }));
@@ -213,13 +256,22 @@ export function ModsTab({ instanceId, serverType }: Props) {
     }
   };
 
-  const handleInstallVersion = async (entry: PluginMarketResult, version: PluginMarketVersion) => {
+  const handleInstallVersion = async (entry: MarketResult, version: MarketVersion) => {
     const key = `${entry.provider}:${entry.id}:${version.id}`;
     setInstallingVersionId(key);
     setMarketError(null);
     setInstalledMessage(null);
     try {
-      const result = await installPluginFromMarket(instanceId, entry.provider, entry.id, version.id);
+      const result = marketKind === 'mod'
+        ? await installModFromMarket(
+            instanceId,
+            entry.provider as ModMarketProvider,
+            entry.id,
+            version.id,
+            modMarketLoader!,
+            gameVersion,
+          )
+        : await installPluginFromMarket(instanceId, entry.provider as PluginMarketProvider, entry.id, version.id);
       setMods(result.mods);
       setInstalledMessage(t('mods.installedFile', { file: result.fileName }));
       setView('installed');
@@ -342,7 +394,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
-          {supportsPluginMarket && (
+          {supportsMarket && (
             <div className="flex rounded-lg border border-app-border bg-app-input p-0.5">
               <button
                 onClick={() => setView('installed')}
@@ -354,7 +406,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
                 onClick={() => setView('market')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${view === 'market' ? 'bg-app-surface text-app-text shadow-sm' : 'text-app-text-muted hover:text-app-text'}`}
               >
-                {t('mods.market')}
+                {t(marketKind === 'mod' ? 'mods.modMarket' : 'mods.pluginMarket')}
               </button>
             </div>
           )}
@@ -394,18 +446,24 @@ export function ModsTab({ instanceId, serverType }: Props) {
         </div>
       </div>
 
-      {view === 'market' && supportsPluginMarket && (
+      {view === 'market' && supportsMarket && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row">
-            <select
-              value={marketProvider}
-              onChange={(e) => setMarketProvider(e.target.value as PluginMarketProvider)}
-              className="h-10 rounded-lg border border-app-border bg-app-input px-3 text-sm text-app-text outline-none focus:border-app-accent"
-            >
-              <option value="modrinth">Modrinth</option>
-              <option value="hangar">Hangar</option>
-              <option value="spiget">Spiget</option>
-            </select>
+            {marketKind === 'plugin' ? (
+              <select
+                value={marketProvider}
+                onChange={(e) => setMarketProvider(e.target.value as PluginMarketProvider)}
+                className="h-10 rounded-lg border border-app-border bg-app-input px-3 text-sm text-app-text outline-none focus:border-app-accent"
+              >
+                <option value="modrinth">Modrinth</option>
+                <option value="hangar">Hangar</option>
+                <option value="spiget">Spiget</option>
+              </select>
+            ) : (
+              <div className="inline-flex h-10 items-center rounded-lg border border-app-border bg-app-input px-3 text-sm font-semibold text-app-text-secondary">
+                Modrinth
+              </div>
+            )}
             <form
               className="flex min-w-0 flex-1 gap-2"
               onSubmit={(event) => {
@@ -416,7 +474,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
               <input
                 value={marketQuery}
                 onChange={(event) => setMarketQuery(event.target.value)}
-                placeholder={t('mods.marketSearchPlaceholder')}
+                placeholder={t(marketKind === 'mod' ? 'mods.modMarketSearchPlaceholder' : 'mods.pluginMarketSearchPlaceholder')}
                 className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm text-app-text outline-none transition-colors focus:border-app-accent focus:bg-app-input-focus"
               />
               <button
@@ -450,7 +508,7 @@ export function ModsTab({ instanceId, serverType }: Props) {
 
           {!marketLoading && marketResults.length === 0 && (
             <div className="py-12 text-center text-sm text-app-text-secondary">
-              {t('mods.marketEmpty')}
+              {t(marketKind === 'mod' ? 'mods.modMarketEmpty' : 'mods.pluginMarketEmpty')}
             </div>
           )}
 
@@ -480,9 +538,9 @@ export function ModsTab({ instanceId, serverType }: Props) {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-semibold text-app-text">{entry.name}</p>
                           <span className="rounded bg-app-surface px-1.5 py-0.5 text-[10px] font-semibold text-app-text-secondary">
-                            {providerLabel(entry.provider)}
+                            {marketProviderLabel(entry.provider)}
                           </span>
-                          {entry.external && (
+                          {'external' in entry && entry.external && (
                             <span className="rounded bg-app-amber-bg px-1.5 py-0.5 text-[10px] font-semibold text-app-amber">
                               {t('mods.external')}
                             </span>

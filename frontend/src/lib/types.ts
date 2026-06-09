@@ -102,6 +102,8 @@ export interface ManagementConfig {
 }
 
 export type PluginMarketProvider = 'spiget' | 'modrinth' | 'hangar';
+export type ModMarketProvider = 'modrinth';
+export type ModMarketLoader = 'fabric' | 'forge';
 
 export interface PluginMarketResult {
   provider: PluginMarketProvider;
@@ -144,6 +146,57 @@ export interface PluginMarketVersion {
   external: boolean;
 }
 
+export interface ModMarketResult {
+  provider: ModMarketProvider;
+  id: string;
+  name: string;
+  description: string;
+  iconUrl?: string;
+  author?: string;
+  downloads?: number;
+  likes?: number;
+  updatedAt?: string;
+  latestVersion?: string;
+  supportedVersions: string[];
+  supportedPlatforms: string[];
+  pageUrl: string;
+}
+
+export interface ModMarketDetails extends ModMarketResult {
+  body?: string;
+  links: Array<{ label: string; url: string }>;
+  license?: string;
+  categories: string[];
+}
+
+export interface ModMarketVersion {
+  provider: ModMarketProvider;
+  id: string;
+  name: string;
+  downloads?: number;
+  releasedAt?: string;
+  supportedVersions: string[];
+  supportedPlatforms: string[];
+  fileName?: string;
+  fileSize?: number;
+  downloadUrl?: string;
+  channel?: string;
+  installable: boolean;
+  external: boolean;
+}
+
+export interface InstalledModInfo {
+  fileName: string;
+  name: string;
+  modid: string;
+  version: string;
+  loader: string;
+  size: number;
+  disabled: boolean;
+  description?: string;
+  authors?: string[];
+}
+
 export interface PluginInstallResult {
   fileName: string;
   path: string;
@@ -151,15 +204,15 @@ export interface PluginInstallResult {
   provider: PluginMarketProvider;
   projectId: string;
   versionId: string;
-  mods: Array<{
-    fileName: string;
-    name: string;
-    modid: string;
-    version: string;
-    loader: string;
-    size: number;
-    disabled: boolean;
-    description?: string;
-    authors?: string[];
-  }>;
+  mods: InstalledModInfo[];
+}
+
+export interface ModInstallResult {
+  fileName: string;
+  path: string;
+  size: number;
+  provider: ModMarketProvider;
+  projectId: string;
+  versionId: string;
+  mods: InstalledModInfo[];
 }

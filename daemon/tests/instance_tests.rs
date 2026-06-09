@@ -1,15 +1,30 @@
-use std::path::Path;
 use neocraft_daemon::instance::{InstanceManager, ServerType};
 use neocraft_daemon::java_args::{build_java_command, version_at_least};
 use neocraft_daemon::management::SMP_ALLOWED_ORIGINS;
 use neocraft_daemon::protocol::{Event, InstanceState};
-use tokio::sync::broadcast;
+use std::io::Write;
+use std::path::Path;
 use tempfile::TempDir;
+use tokio::sync::broadcast;
 
-fn setup() -> (TempDir, broadcast::Sender<Event>, broadcast::Receiver<Event>) {
+fn setup() -> (
+    TempDir,
+    broadcast::Sender<Event>,
+    broadcast::Receiver<Event>,
+) {
     let dir = TempDir::new().unwrap();
     let (tx, rx) = broadcast::channel(256);
     (dir, tx, rx)
+}
+
+fn write_test_server_jar(path: &Path, version: &str) {
+    let file = std::fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("version.json", options).unwrap();
+    zip.write_all(format!(r#"{{"name":"{}"}}"#, version).as_bytes())
+        .unwrap();
+    zip.finish().unwrap();
 }
 
 #[tokio::test]
@@ -17,14 +32,17 @@ async fn test_create_instance_creates_directory_structure() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let instance = manager.create(
-        "Test Server".into(),
-        ServerType::Paper,
-        "1.21.5".into(),
-        25565,
-        "".into(),
-        None,
-    ).await.unwrap();
+    let instance = manager
+        .create(
+            "Test Server".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
 
     // Check instance fields
     assert_eq!(instance.name, "Test Server");
@@ -38,7 +56,10 @@ async fn test_create_instance_creates_directory_structure() {
     let work_dir = dir.path().join("instances").join(&instance.id);
     assert!(work_dir.exists(), "work directory should exist");
     assert!(work_dir.join("eula.txt").exists(), "eula.txt should exist");
-    assert!(work_dir.join("server.properties").exists(), "server.properties should exist");
+    assert!(
+        work_dir.join("server.properties").exists(),
+        "server.properties should exist"
+    );
 
     // Check instance state file
     let state_file = work_dir.join("instance.json");
@@ -54,8 +75,28 @@ async fn test_create_instance_assigns_unique_ports() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let i1 = manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
-    let i2 = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into(), None).await.unwrap();
+    let i1 = manager
+        .create(
+            "S1".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    let i2 = manager
+        .create(
+            "S2".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25566,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
 
     assert_ne!(i1.port, i2.port, "ports should be different");
 }
@@ -65,8 +106,27 @@ async fn test_create_instance_duplicate_port_rejected() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
-    let result = manager.create("S2".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await;
+    manager
+        .create(
+            "S1".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    let result = manager
+        .create(
+            "S2".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await;
 
     assert!(result.is_err(), "duplicate port should be rejected");
 }
@@ -128,12 +188,102 @@ async fn test_create_instance_rejects_management_port_conflict() {
 }
 
 #[tokio::test]
+async fn test_import_rejects_source_that_contains_instances_dir() {
+    let (dir, event_tx, _) = setup();
+    let manager = InstanceManager::new(dir.path().join("neocraft-data"), event_tx);
+    tokio::fs::create_dir_all(dir.path().join("neocraft-data/instances"))
+        .await
+        .unwrap();
+    write_test_server_jar(&dir.path().join("server.jar"), "1.20.4");
+
+    let result = manager
+        .import(
+            "Unsafe Import".into(),
+            dir.path().to_path_buf(),
+            25565,
+            None,
+            None,
+        )
+        .await;
+
+    let message = result.unwrap_err().to_string();
+    assert!(
+        message.contains("contains NeoCraft's instances directory"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
+async fn test_import_emits_copy_progress() {
+    let (dir, event_tx, mut event_rx) = setup();
+    let manager = InstanceManager::new(dir.path().join("neocraft-data"), event_tx);
+    let source_dir = dir.path().join("source-server");
+    tokio::fs::create_dir_all(source_dir.join("world"))
+        .await
+        .unwrap();
+    write_test_server_jar(&source_dir.join("server.jar"), "1.20.4");
+    tokio::fs::write(source_dir.join("world/level.dat"), vec![7_u8; 1024])
+        .await
+        .unwrap();
+
+    let instance = manager
+        .import("Imported".into(), source_dir, 25565, None, None)
+        .await
+        .unwrap();
+
+    let mut saw_start_progress = false;
+    let mut saw_copied_progress = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if let Event::DownloadProgress {
+            task_id,
+            phase,
+            downloaded,
+            ..
+        } = event
+        {
+            if task_id == format!("import:{}", instance.id) && phase.as_deref() == Some("import") {
+                if downloaded == 0 {
+                    saw_start_progress = true;
+                } else {
+                    saw_copied_progress = true;
+                }
+            }
+        }
+    }
+
+    assert!(
+        saw_start_progress && saw_copied_progress,
+        "import should emit start and copy progress events"
+    );
+}
+
+#[tokio::test]
 async fn test_list_instances() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
-    manager.create("S2".into(), ServerType::Vanilla, "1.21.0".into(), 25566, "".into(), None).await.unwrap();
+    manager
+        .create(
+            "S1".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    manager
+        .create(
+            "S2".into(),
+            ServerType::Vanilla,
+            "1.21.0".into(),
+            25566,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
 
     let list = manager.list().await;
     assert_eq!(list.len(), 2);
@@ -144,7 +294,17 @@ async fn test_get_instance_by_id() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let created = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let created = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let found = manager.get(&created.id).await.unwrap();
     assert_eq!(found.name, "Test");
 }
@@ -161,7 +321,17 @@ async fn test_delete_instance_removes_directory() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
 
-    let created = manager.create("ToDelete".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let created = manager
+        .create(
+            "ToDelete".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let work_dir = dir.path().join("instances").join(&created.id);
     assert!(work_dir.exists());
 
@@ -176,7 +346,17 @@ async fn test_delete_running_instance_rejected() {
     // This test validates future behavior
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let created = manager.create("Running".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let created = manager
+        .create(
+            "Running".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     // Can't test rejection of running instance yet — manually set state to Running
     // This documents the expected behavior
     assert!(manager.get(&created.id).await.is_some());
@@ -187,17 +367,40 @@ async fn test_delete_running_instance_rejected() {
 async fn test_eula_accepted_by_default() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let instance = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let eula = std::fs::read_to_string(work_dir.join("eula.txt")).unwrap();
-    assert!(eula.contains("eula=true"), "eula should be accepted by default");
+    assert!(
+        eula.contains("eula=true"),
+        "eula should be accepted by default"
+    );
 }
 
 #[tokio::test]
 async fn test_server_properties_template_has_all_fields() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25566, "".into(), None).await.unwrap();
+    let instance = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25566,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let work_dir = dir.path().join("instances").join(&instance.id);
     let props = std::fs::read_to_string(work_dir.join("server.properties")).unwrap();
     // Core fields
@@ -218,8 +421,21 @@ async fn test_server_properties_template_has_all_fields() {
 async fn test_jar_path_is_set_on_create() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
-    assert!(instance.jar_path.ends_with("server.jar"), "jar_path should point to server.jar");
+    let instance = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        instance.jar_path.ends_with("server.jar"),
+        "jar_path should point to server.jar"
+    );
     assert_eq!(instance.jar_path, instance.work_dir.join("server.jar"));
 }
 
@@ -227,11 +443,27 @@ async fn test_jar_path_is_set_on_create() {
 async fn test_jar_path_persisted_in_instance_json() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let instance = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let json_path = instance.work_dir.join("instance.json");
     let json_str = std::fs::read_to_string(&json_path).unwrap();
-    assert!(json_str.contains("jar_path"), "instance.json should contain jar_path");
-    assert!(json_str.contains("server.jar"), "instance.json should contain server.jar path");
+    assert!(
+        json_str.contains("jar_path"),
+        "instance.json should contain jar_path"
+    );
+    assert!(
+        json_str.contains("server.jar"),
+        "instance.json should contain server.jar path"
+    );
 }
 
 #[test]
@@ -277,12 +509,7 @@ fn test_build_fabric_java_command() {
 
 #[test]
 fn test_build_java_command_falls_back_to_default_memory() {
-    let cmd = build_java_command(
-        "java",
-        Path::new("/tmp/server.jar"),
-        &ServerType::Paper,
-        "",
-    );
+    let cmd = build_java_command("java", Path::new("/tmp/server.jar"), &ServerType::Paper, "");
     assert!(cmd.1.contains(&"-Xmx2G".to_string()));
     assert!(cmd.1.contains(&"-Xms2G".to_string()));
 }
@@ -302,14 +529,30 @@ fn test_build_spigot_uses_aikar_flags() {
 async fn test_start_already_running_rejected() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
-    let instance = manager.create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
+    let instance = manager
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
+        .await
+        .unwrap();
     let id = instance.id.clone();
 
     // Manually set state to Running to simulate an already-running instance
-    manager.force_state(&id, InstanceState::Running).await.unwrap();
+    manager
+        .force_state(&id, InstanceState::Running)
+        .await
+        .unwrap();
 
     let result = manager.start(&id).await;
-    assert!(result.is_err(), "starting an already-running instance should be rejected");
+    assert!(
+        result.is_err(),
+        "starting an already-running instance should be rejected"
+    );
 }
 
 #[tokio::test]
@@ -317,7 +560,14 @@ async fn test_stop_not_running_is_noop() {
     let (dir, event_tx, _) = setup();
     let manager = InstanceManager::new(dir.path().to_path_buf(), event_tx);
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None)
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
         .await
         .unwrap();
     let result = manager.stop(&instance.id).await;
@@ -332,8 +582,28 @@ async fn test_instances_persist_across_restarts() {
     // Create two instances
     {
         let manager = InstanceManager::new(data_dir.clone(), event_tx.clone());
-        manager.create("S1".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None).await.unwrap();
-        manager.create("S2".into(), ServerType::Vanilla, "1.20.4".into(), 25566, "".into(), None).await.unwrap();
+        manager
+            .create(
+                "S1".into(),
+                ServerType::Paper,
+                "1.21.5".into(),
+                25565,
+                "".into(),
+                None,
+            )
+            .await
+            .unwrap();
+        manager
+            .create(
+                "S2".into(),
+                ServerType::Vanilla,
+                "1.20.4".into(),
+                25566,
+                "".into(),
+                None,
+            )
+            .await
+            .unwrap();
         let list = manager.list().await;
         assert_eq!(list.len(), 2);
     }
@@ -345,7 +615,11 @@ async fn test_instances_persist_across_restarts() {
         let manager2 = InstanceManager::new(data_dir.clone(), new_tx);
         let list = manager2.list().await;
         assert_eq!(list.len(), 2, "instances should be reloaded from disk");
-        assert_eq!(list[0].state, InstanceState::Stopped, "state should be reset to Stopped");
+        assert_eq!(
+            list[0].state,
+            InstanceState::Stopped,
+            "state should be reset to Stopped"
+        );
         assert_eq!(list[1].state, InstanceState::Stopped);
     }
 }
@@ -358,7 +632,14 @@ async fn test_update_config_java_args_roundtrip() {
 
     // Create instance with default java_args
     let instance = manager
-        .create("Test".into(), ServerType::Paper, "1.21.5".into(), 25565, "".into(), None)
+        .create(
+            "Test".into(),
+            ServerType::Paper,
+            "1.21.5".into(),
+            25565,
+            "".into(),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(instance.java_args, "-Xmx2G -Xms1G");
@@ -371,17 +652,27 @@ async fn test_update_config_java_args_roundtrip() {
 
     // Verify in-memory update
     let updated = manager.get(&instance.id).await.unwrap();
-    assert_eq!(updated.java_args, "-Xmx4G -Xms2G", "java_args should be updated in memory");
+    assert_eq!(
+        updated.java_args, "-Xmx4G -Xms2G",
+        "java_args should be updated in memory"
+    );
 
     // Verify disk persistence — read instance.json directly
     let json = std::fs::read_to_string(updated.work_dir.join("instance.json")).unwrap();
-    assert!(json.contains("java_args") && json.contains("4G"), "java_args should be persisted to disk, got: {}", json);
+    assert!(
+        json.contains("java_args") && json.contains("4G"),
+        "java_args should be persisted to disk, got: {}",
+        json
+    );
 
     // Verify reload from disk
     let (new_tx, _) = broadcast::channel(256);
     let manager2 = InstanceManager::new(data_dir, new_tx);
     let reloaded = manager2.get(&instance.id).await.unwrap();
-    assert_eq!(reloaded.java_args, "-Xmx4G -Xms2G", "java_args should survive daemon restart");
+    assert_eq!(
+        reloaded.java_args, "-Xmx4G -Xms2G",
+        "java_args should survive daemon restart"
+    );
 }
 
 #[test]
@@ -469,12 +760,11 @@ async fn test_smp_config_for_1_21_9() {
 
     let props = std::fs::read_to_string(instance.work_dir.join("server.properties")).unwrap();
     assert!(props.contains("management-server-enabled=true"));
-    assert!(props.contains(&format!(
-        "management-server-port={}",
-        instance.port + 100
-    )));
+    assert!(props.contains(&format!("management-server-port={}", instance.port + 100)));
     assert!(props.contains("management-server-secret="));
-    assert!(props.contains(&format!("management-server-allowed-origins={SMP_ALLOWED_ORIGINS}")));
+    assert!(props.contains(&format!(
+        "management-server-allowed-origins={SMP_ALLOWED_ORIGINS}"
+    )));
     // The secret in file should match the token on the instance
     assert!(props.contains(&instance.management_token));
     // TLS is disabled by default (localhost self-signed cert breaks browsers)
@@ -504,7 +794,10 @@ async fn test_rcon_config_for_1_20_4() {
         .await
         .unwrap();
 
-    assert!(instance.management_port > 0, "management_port should be set");
+    assert!(
+        instance.management_port > 0,
+        "management_port should be set"
+    );
     assert!(
         !instance.management_token.is_empty(),
         "management_token should be set"

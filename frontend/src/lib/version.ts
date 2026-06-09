@@ -4,7 +4,7 @@
  * Returns false if the version string cannot be parsed.
  */
 export function versionAtLeast(version: string, major: number, minor: number, patch: number): boolean {
-  const parts = version.split(".");
+  const parts = extractMinecraftVersion(version).split(".");
   if (parts.length < 3) return false;
 
   const [vMajor, vMinor, vPatch] = parts.map(Number);
@@ -13,4 +13,14 @@ export function versionAtLeast(version: string, major: number, minor: number, pa
   if (vMajor !== major) return vMajor > major;
   if (vMinor !== minor) return vMinor > minor;
   return vPatch >= patch;
+}
+
+/**
+ * Extract the Minecraft game version from an instance version label.
+ * Imported Forge/Fabric servers can be labeled like "1.20.1 Forge 47.2.0".
+ */
+export function extractMinecraftVersion(version: string): string {
+  const trimmed = version.trim();
+  const match = trimmed.match(/\b\d+\.\d+(?:\.\d+)?\b/);
+  return match?.[0] || trimmed;
 }

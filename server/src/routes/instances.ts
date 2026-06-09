@@ -48,6 +48,7 @@ interface FileRenameBody {
 
 const VALID_TYPES = new Set<ServerType>(['vanilla', 'paper', 'spigot', 'fabric', 'forge', 'custom']);
 const SERVER_NAME_PATTERN = /^[a-zA-Z0-9一-鿿 _-]+$/;
+const INSTANCE_IMPORT_TIMEOUT_MS = 1_800_000;
 
 export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app: FastifyInstance,
@@ -104,7 +105,7 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
         port: optionalPort(body.port, 25565),
         java_args: body.javaArgs || null,
         java_path: body.javaPath || null,
-      }, 120000);
+      }, INSTANCE_IMPORT_TIMEOUT_MS);
 
       return reply.status(201).send(instance);
     } catch (error) {

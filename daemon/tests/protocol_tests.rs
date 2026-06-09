@@ -1,4 +1,4 @@
-use neocraft_daemon::protocol::{Request, Response, Event, Method, InstanceState, Error};
+use neocraft_daemon::protocol::{Error, Event, InstanceState, Method, Request, Response};
 use serde_json;
 
 #[test]
@@ -80,11 +80,47 @@ fn test_deserialize_download_progress_event() {
     let json = r#"{"event":"download.progress","data":{"task_id":"t1","downloaded":500,"total":1000,"percent":50.0}}"#;
     let ev: Event = serde_json::from_str(json).unwrap();
     match ev {
-        Event::DownloadProgress { task_id, downloaded, total, percent } => {
+        Event::DownloadProgress {
+            task_id,
+            downloaded,
+            total,
+            percent,
+            phase,
+            status,
+        } => {
             assert_eq!(task_id, "t1");
             assert_eq!(downloaded, 500);
             assert_eq!(total, 1000);
             assert_eq!(percent, 50.0);
+            assert_eq!(phase, None);
+            assert_eq!(status, None);
+        }
+        _ => panic!("expected DownloadProgress event"),
+    }
+}
+
+#[test]
+fn test_deserialize_download_progress_phase() {
+    let json = r#"{"event":"download.progress","data":{"task_id":"import:i1","downloaded":500,"total":1000,"percent":50.0,"phase":"import"}}"#;
+    let ev: Event = serde_json::from_str(json).unwrap();
+    match ev {
+        Event::DownloadProgress { task_id, phase, status, .. } => {
+            assert_eq!(task_id, "import:i1");
+            assert_eq!(phase.as_deref(), Some("import"));
+            assert_eq!(status, None);
+        }
+        _ => panic!("expected DownloadProgress event"),
+    }
+}
+
+#[test]
+fn test_deserialize_download_progress_status() {
+    let json = r#"{"event":"download.progress","data":{"task_id":"import:i1","downloaded":0,"total":0,"percent":0.0,"phase":"import","status":"detecting"}}"#;
+    let ev: Event = serde_json::from_str(json).unwrap();
+    match ev {
+        Event::DownloadProgress { phase, status, .. } => {
+            assert_eq!(phase.as_deref(), Some("import"));
+            assert_eq!(status.as_deref(), Some("detecting"));
         }
         _ => panic!("expected DownloadProgress event"),
     }

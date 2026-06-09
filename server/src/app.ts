@@ -9,8 +9,10 @@ import { instanceRoutes } from './routes/instances.js';
 import { configRoutes } from './routes/config.js';
 import { versionRoutes } from './routes/versions.js';
 import { pluginMarketRoutes } from './routes/plugin-market.js';
+import { modMarketRoutes } from './routes/mod-market.js';
 import { VersionService } from './services/version-service.js';
 import { PluginMarketService } from './services/plugin-market-service.js';
+import { ModMarketService } from './services/mod-market-service.js';
 import { loadRuntimeConfig, loadAuthToken, type RuntimeOptions } from './config.js';
 import { DaemonRuntime } from './services/daemon-runtime.js';
 
@@ -126,10 +128,12 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
 
   const versionService = new VersionService();
   const pluginMarketService = new PluginMarketService();
+  const modMarketService = new ModMarketService();
   await server.register(instanceRoutes, { ipc });
   await server.register(configRoutes, { ipc });
   await server.register(versionRoutes, { versionService });
   await server.register(pluginMarketRoutes, { service: pluginMarketService, ipc });
+  await server.register(modMarketRoutes, { service: modMarketService, ipc });
 
   if (existsSync(runtimeConfig.frontendDist)) {
     await server.register(fastifyStatic, {

@@ -97,6 +97,8 @@ export default function Setup() {
           percent: event.data.percent as number,
           downloaded: event.data.downloaded as number,
           total: event.data.total as number,
+          phase: event.data.phase as string | undefined,
+          status: event.data.status as string | undefined,
         });
       }
     });
@@ -176,6 +178,14 @@ export default function Setup() {
     setDownloadProgress(null);
     try {
       if (serverType === 'custom') {
+        setDownloadProgress({
+          taskId: 'import:pending',
+          percent: 0,
+          downloaded: 0,
+          total: 0,
+          phase: 'import',
+          status: 'detecting',
+        });
         const instance = await importInstance(name || 'My Server', sourceDir, port, javaArgs || undefined, javaPath || undefined);
         const base = import.meta.env.VITE_API_HOST ? `${import.meta.env.VITE_API_HOST}/api` : '/api';
         fetch(`${base}/instances/${instance.id}/mods/scan`, { method: 'POST' }).catch(() => {});
@@ -438,7 +448,11 @@ export default function Setup() {
 
           {dp && creating && (
             <div className="mt-4 p-3 rounded-md bg-app-accent-bg border border-app-accent-border text-app-accent text-sm">
-              {t('status.downloadProgress') || '下载中'}: {dp.percent?.toFixed(0)}% {dp.total ? `(${(dp.downloaded / 1024 / 1024).toFixed(1)} / ${(dp.total / 1024 / 1024).toFixed(1)} MB)` : `(dp.downloaded / 1024 / 1024).toFixed(1) MB`}
+              {dp.phase === 'import'
+                ? dp.status === 'detecting'
+                  ? t('status.importDetecting')
+                  : `${t('status.importProgress')} ${(dp.downloaded / 1024 / 1024).toFixed(1)} MB`
+                : `${t('status.downloadProgress') || '下载中'}: ${dp.total ? `${dp.percent?.toFixed(0)}% (${(dp.downloaded / 1024 / 1024).toFixed(1)} / ${(dp.total / 1024 / 1024).toFixed(1)} MB)` : `${(dp.downloaded / 1024 / 1024).toFixed(1)} MB`}`}
             </div>
           )}
 

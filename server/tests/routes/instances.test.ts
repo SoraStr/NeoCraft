@@ -34,6 +34,20 @@ function createMockIpc() {
           instances.set(id, instance);
           return { id: '', result: instance };
         }
+        case 'instance.import': {
+          const id = `inst-${instances.size + 1}`;
+          const instance = {
+            id,
+            name: params.name,
+            type: 'custom',
+            version: '1.20.4',
+            port: params.port || 25565,
+            state: 'stopped',
+            createdAt: new Date().toISOString(),
+          };
+          instances.set(id, instance);
+          return { id: '', result: instance };
+        }
         case 'instance.list':
           return { id: '', result: Array.from(instances.values()) };
         case 'instance.get': {
@@ -153,6 +167,33 @@ describe('POST /api/instances', () => {
 
     expect(res.body.error).toBeDefined();
     expect(mockIpc.request).not.toHaveBeenCalledWith('instance.create', expect.anything());
+
+    await app.close();
+  });
+});
+
+describe('POST /api/instances/import', () => {
+  it('should import an instance with an extended IPC timeout', async () => {
+    const mockIpc = createMockIpc();
+    const { app } = await buildTestApp(mockIpc);
+
+    const res = await supertest(app.server)
+      .post('/api/instances/import')
+      .send({ name: 'Imported', sourceDir: '/tmp/minecraft-server', port: 25565 })
+      .expect(201);
+
+    expect(res.body.name).toBe('Imported');
+    expect(mockIpc.request).toHaveBeenCalledWith(
+      'instance.import',
+      {
+        name: 'Imported',
+        source_dir: '/tmp/minecraft-server',
+        port: 25565,
+        java_args: null,
+        java_path: null,
+      },
+      { timeout: 1800000 },
+    );
 
     await app.close();
   });

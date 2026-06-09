@@ -158,4 +158,10 @@ describe('instanceStore', () => {
     useInstanceStore.getState().setDownloadProgress(progress);
     expect(useInstanceStore.getState().downloadProgress).toEqual(progress);
   });
+
+  it('setDownloadProgress stores import progress phase', () => {
+    const progress = { taskId: 'import:pending', percent: 0, downloaded: 0, total: 0, phase: 'import', status: 'detecting' };
+    useInstanceStore.getState().setDownloadProgress(progress);
+    expect(useInstanceStore.getState().downloadProgress).toEqual(progress);
+  });
 });

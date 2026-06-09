@@ -32,9 +32,13 @@ impl CacheInfo {
     /// collisions between different builds of the same type+version.
     pub fn cached_path(&self) -> PathBuf {
         if let Some(ref hash) = self.url_hash {
-            self.cache_dir.join(format!("{}-{}-{}.jar", self.server_type, self.version, hash))
+            self.cache_dir.join(format!(
+                "{}-{}-{}.jar",
+                self.server_type, self.version, hash
+            ))
         } else {
-            self.cache_dir.join(format!("{}-{}.jar", self.server_type, self.version))
+            self.cache_dir
+                .join(format!("{}-{}.jar", self.server_type, self.version))
         }
     }
 }
@@ -66,9 +70,23 @@ pub async fn download_jar(
         if cached.exists() {
             let size = cached.metadata()?.len();
             // Emit a quick 0→100 progress
-            let _ = event_tx.send(Event::DownloadProgress { task_id: task_id.clone(), downloaded: 0, total: size, percent: 0.0 });
+            let _ = event_tx.send(Event::DownloadProgress {
+                task_id: task_id.clone(),
+                downloaded: 0,
+                total: size,
+                percent: 0.0,
+                phase: Some("download".into()),
+                status: None,
+            });
             tokio::fs::copy(&cached, dest).await?;
-            let _ = event_tx.send(Event::DownloadProgress { task_id: task_id.clone(), downloaded: size, total: size, percent: 100.0 });
+            let _ = event_tx.send(Event::DownloadProgress {
+                task_id: task_id.clone(),
+                downloaded: size,
+                total: size,
+                percent: 100.0,
+                phase: Some("download".into()),
+                status: None,
+            });
             return Ok(size);
         }
 
@@ -108,7 +126,12 @@ pub async fn download_jar(
 
     // Emit initial progress
     let _ = event_tx.send(Event::DownloadProgress {
-        task_id: task_id.clone(), downloaded: 0, total, percent: 0.0,
+        task_id: task_id.clone(),
+        downloaded: 0,
+        total,
+        percent: 0.0,
+        phase: Some("download".into()),
+        status: None,
     });
 
     use futures_util::StreamExt;
@@ -128,7 +151,12 @@ pub async fn download_jar(
                 (elapsed as f64 / 30_000.0 * 100.0).min(99.0)
             };
             let _ = event_tx.send(Event::DownloadProgress {
-                task_id: task_id.clone(), downloaded, total, percent,
+                task_id: task_id.clone(),
+                downloaded,
+                total,
+                percent,
+                phase: Some("download".into()),
+                status: None,
             });
         }
     }
@@ -141,7 +169,12 @@ pub async fn download_jar(
     // Final 100%
     let final_total = if total == 0 { downloaded } else { total };
     let _ = event_tx.send(Event::DownloadProgress {
-        task_id, downloaded, total: final_total, percent: 100.0,
+        task_id,
+        downloaded,
+        total: final_total,
+        percent: 100.0,
+        phase: Some("download".into()),
+        status: None,
     });
 
     Ok(downloaded)
@@ -173,7 +206,10 @@ mod tests {
             version: "1.21.0".into(),
             url_hash: None,
         };
-        assert_eq!(vanilla.cached_path(), PathBuf::from("/cache/vanilla-1.21.0.jar"));
+        assert_eq!(
+            vanilla.cached_path(),
+            PathBuf::from("/cache/vanilla-1.21.0.jar")
+        );
 
         let fabric = CacheInfo {
             cache_dir: PathBuf::from("/cache"),
@@ -181,6 +217,9 @@ mod tests {
             version: "1.20.4".into(),
             url_hash: None,
         };
-        assert_eq!(fabric.cached_path(), PathBuf::from("/cache/fabric-1.20.4.jar"));
+        assert_eq!(
+            fabric.cached_path(),
+            PathBuf::from("/cache/fabric-1.20.4.jar")
+        );
     }
 }

@@ -56,3 +56,30 @@ Use Vitest-native flags or file filters instead of Jest CLI options.
 - Related Files: server/package.json
 
 ---
+
+## [ERR-20260609-001] cargo_test_filter
+
+**Logged**: 2026-06-09T23:34:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+Ran cargo test with multiple positional test filters, which Cargo rejects.
+
+### Error
+```
+error: unexpected argument 'test_import_rejects_source_that_contains_instances_dir' found
+```
+
+### Context
+Attempted to run three specific Rust tests in one command using multiple test-name arguments. Cargo accepts one TESTNAME filter before --.
+
+### Suggested Fix
+Use a single broader filter, run tests separately, or run full cargo test.
+
+### Metadata
+- Reproducible: yes
+- Related Files: daemon/tests/instance_tests.rs
+
+---

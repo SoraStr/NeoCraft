@@ -2,6 +2,12 @@ import type {
   CreateInstanceInput,
   FabricVersionMeta,
   Instance,
+  ModInstallResult,
+  ModMarketDetails,
+  ModMarketLoader,
+  ModMarketProvider,
+  ModMarketResult,
+  ModMarketVersion,
   PluginInstallResult,
   PluginMarketDetails,
   PluginMarketProvider,
@@ -188,7 +194,7 @@ export async function importInstance(input: {
   return request<Instance>('/instances/import', {
     method: 'POST',
     body: JSON.stringify(input),
-    timeoutMs: 120000,
+    timeoutMs: 1800000,
   });
 }
 
@@ -339,6 +345,60 @@ export async function installPluginFromMarket(
   return request<PluginInstallResult>(`/instances/${instanceId}/plugin-market/install`, {
     method: 'POST',
     body: JSON.stringify({ provider, projectId, versionId }),
+    timeoutMs: 180000,
+  });
+}
+
+export async function searchModMarket(
+  loader: ModMarketLoader,
+  query: string,
+  gameVersion?: string,
+): Promise<ModMarketResult[]> {
+  return request<ModMarketResult[]>(withQuery('/mod-market/search', {
+    loader,
+    q: query,
+    gameVersion,
+    limit: '20',
+  }), { timeoutMs: 20000 });
+}
+
+export async function getModMarketDetails(
+  provider: ModMarketProvider,
+  projectId: string,
+): Promise<ModMarketDetails> {
+  return request<ModMarketDetails>(
+    `/mod-market/${provider}/projects/${encodeURIComponent(projectId)}`,
+    { timeoutMs: 20000 },
+  );
+}
+
+export async function getModMarketVersions(
+  provider: ModMarketProvider,
+  projectId: string,
+  loader: ModMarketLoader,
+  gameVersion?: string,
+): Promise<ModMarketVersion[]> {
+  return request<ModMarketVersion[]>(withQuery(
+    `/mod-market/${provider}/projects/${encodeURIComponent(projectId)}/versions`,
+    {
+      loader,
+      gameVersion,
+      limit: '20',
+    },
+  ), { timeoutMs: 20000 });
+}
+
+export async function installModFromMarket(
+  instanceId: string,
+  provider: ModMarketProvider,
+  projectId: string,
+  versionId: string,
+  loader: ModMarketLoader,
+  gameVersion?: string,
+): Promise<ModInstallResult> {
+  return request<ModInstallResult>(`/instances/${instanceId}/mod-market/install`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, projectId, versionId, loader, gameVersion }),
     timeoutMs: 180000,
   });
 }

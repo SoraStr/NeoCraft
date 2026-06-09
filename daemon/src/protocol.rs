@@ -95,12 +95,13 @@ pub enum Event {
         downloaded: u64,
         total: u64,
         percent: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
     },
     #[serde(rename = "daemon.status")]
-    DaemonStatus {
-        version: String,
-        uptime_secs: u64,
-    },
+    DaemonStatus { version: String, uptime_secs: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

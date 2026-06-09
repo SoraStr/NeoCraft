@@ -117,8 +117,11 @@ pub fn detect_server(dir: &Path) -> Result<DetectedServer, InstanceError> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map(|e| e == "jar").unwrap_or(false) {
+            let is_regular_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+            if is_regular_file && path.extension().map(|e| e == "jar").unwrap_or(false) {
                 jar_candidates.push(path);
+            } else if path.extension().map(|e| e == "jar").unwrap_or(false) {
+                tracing::warn!(path = %path.display(), "Skipping non-regular .jar candidate during import detection");
             }
         }
     }

@@ -12,9 +12,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <div className="flex min-h-screen bg-app-bg text-app-text transition-theme">
+        <div className="flex h-screen overflow-hidden bg-app-bg text-app-text transition-theme">
           <Sidebar />
-          <main className="flex-1 overflow-auto">
+          <main className="min-w-0 flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/setup" element={<Setup />} />

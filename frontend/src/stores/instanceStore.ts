@@ -10,11 +10,11 @@ interface InstanceStore {
   stats: Record<string, InstanceStats | null>;
   loading: boolean;
   error: string | null;
-  downloadProgress: { taskId: string; percent: number; downloaded: number; total: number } | null;
+  downloadProgress: { taskId: string; percent: number; downloaded: number; total: number; phase?: string; status?: string } | null;
 
   // Actions
   fetchInstances: () => Promise<void>;
-  setDownloadProgress: (progress: { taskId: string; percent: number; downloaded: number; total: number } | null) => void;
+  setDownloadProgress: (progress: { taskId: string; percent: number; downloaded: number; total: number; phase?: string; status?: string } | null) => void;
   createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string, javaPath?: string) => Promise<Instance>;
   importInstance: (name: string, sourceDir: string, port?: number, javaArgs?: string, javaPath?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;

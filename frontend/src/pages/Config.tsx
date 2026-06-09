@@ -16,6 +16,7 @@ import {
 import { useInstanceStore } from '../stores/instanceStore';
 import { MotdGeneratorDialog } from '../components/config/MotdGeneratorDialog';
 import { ModsTab } from '../components/management/ModsTab';
+import { extractMinecraftVersion } from '../lib/version';
 import * as api from '../lib/api';
 
 const LABELS_ZH: Record<string, string> = {
@@ -316,7 +317,13 @@ export default function Config() {
         </>
       )}
 
-      {activeTab === 'mods' && <ModsTab instanceId={id!} serverType={instance.type} />}
+      {activeTab === 'mods' && (
+        <ModsTab
+          instanceId={id!}
+          serverType={instance.type}
+          gameVersion={extractMinecraftVersion(instance.version)}
+        />
+      )}
 
       <MotdGeneratorDialog open={showMotdGenerator} initialValue={merged.motd ?? ''} onApply={handleApplyMotd} onClose={() => setShowMotdGenerator(false)} />
     </div>
