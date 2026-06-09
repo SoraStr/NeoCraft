@@ -53,7 +53,7 @@ export function PlayersTab({ client }: PlayersTabProps) {
     setKicking(player.name);
     setActionError(null);
     try {
-      await client.call('players/kick', [[{ player: { name: player.name }, message: { literal: 'Kicked by administrator', translatable: '', translatableParams: [] } }]]);
+      await client.call('players/kick', [[{ player: { name: player.name }, message: { literal: 'Kicked by administrator' } }]]);
       setPlayers((prev) => prev.filter((p) => p.name !== player.name));
     } catch (err: any) {
       setActionError(err.message || 'Failed to kick player.');

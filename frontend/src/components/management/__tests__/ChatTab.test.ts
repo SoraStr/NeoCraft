@@ -9,7 +9,7 @@ describe('ChatTab SMP payload helpers', () => {
     ];
 
     expect(buildSystemMessage('Hello', false, players)).toEqual({
-      message: { literal: 'Hello', translatable: '', translatableParams: [] },
+      message: { literal: 'Hello' },
       overlay: false,
       receivingPlayers: players,
     });

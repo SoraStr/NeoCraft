@@ -11,7 +11,7 @@ interface ChatTabProps {
 
 export function buildSystemMessage(message: string, overlay: boolean, players: PlayerDto[]) {
   return {
-    message: { literal: message, translatable: '', translatableParams: [] },
+    message: { literal: message },
     overlay,
     receivingPlayers: players,
   };
@@ -39,7 +39,7 @@ export function ChatTab({ client, players }: ChatTabProps) {
         return;
       }
 
-      await client.call('server/system_message', [buildSystemMessage(trimmed, overlay, players)]);
+      await client.call('server/system_message', { message: buildSystemMessage(trimmed, overlay, players) });
       setMessage('');
       setSent(true);
       setTimeout(() => setSent(false), 2000);

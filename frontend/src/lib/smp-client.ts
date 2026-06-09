@@ -1,8 +1,11 @@
 // JSON-RPC 2.0 message types
+// JSON-RPC 2.0 allows params to be either an Array (positional) or an Object (named).
+type JsonRpcParams = unknown[] | Record<string, unknown>;
+
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   method: string;
-  params?: unknown[];
+  params?: JsonRpcParams;
   id: number;
 }
 
@@ -153,15 +156,15 @@ export class SmpClient {
     return this.connectPromise;
   }
 
-  call(method: string, params?: unknown[]): Promise<unknown> {
+  call(method: string, params?: JsonRpcParams): Promise<unknown> {
     return this.callMethod(`${CALL_PREFIX}${method}`, params);
   }
 
-  callRaw(method: string, params?: unknown[]): Promise<unknown> {
+  callRaw(method: string, params?: JsonRpcParams): Promise<unknown> {
     return this.callMethod(method, params);
   }
 
-  private callMethod(method: string, params?: unknown[]): Promise<unknown> {
+  private callMethod(method: string, params?: JsonRpcParams): Promise<unknown> {
     if (!this.connected) {
       return Promise.reject(new Error('Not connected'));
     }
