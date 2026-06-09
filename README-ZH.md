@@ -81,7 +81,7 @@ cd frontend && npm install && cd ..
 npm run dev
 ```
 
-然后在浏览器中打开 **http://localhost:1145**。
+然后在浏览器中打开 **http://localhost:1145**。开发模式下，Vite 前端使用 `1145` 端口，并将 API 请求代理到 `3001` 端口上的 `neocraft-server`。
 
 ## 生产构建
 
@@ -98,6 +98,8 @@ node build/start.mjs
 - 编译后的 Node.js 服务端代码
 - 生产环境服务端依赖
 - Rust 守护进程二进制文件
+
+生产模式默认在 **http://127.0.0.1:3001** 启动 `neocraft-server`。如需修改监听端口，可设置 `PORT` 或 `NEOCRAFT_PORT`。
 
 ## 手动启动（3 个终端）
 
@@ -272,17 +274,18 @@ neocraft-daemon [OPTIONS]
   --data-dir <路径>   实例和配置数据目录（默认：~/.neocraft）
 ```
 
+守护进程在 macOS/Linux 上使用 Unix Socket，在 Windows 上使用命名管道；它不会绑定 TCP `1145` 端口。
+
 ### 服务端环境变量
 
 | 变量 | 说明 | 默认值 |
 |----------|-------------|---------|
-| `PORT` | API 服务监听端口 | `1145` |
+| `PORT` | API 服务监听端口 | `3001` |
 | `HOST` | API 服务监听地址 | `127.0.0.1` |
-| `IPC_SOCKET_PATH` | 守护进程 IPC Socket 路径 | 平台默认 |
-| `FRONTEND_DIST` | 前端静态文件路径 | `../frontend/dist` |
-| `AUTO_START_DAEMON` | 服务启动时自动启动守护进程 | `true` |
-| `AUTH_TOKEN` | API Bearer 令牌（为空则禁用认证） | （空） |
-| `CORS_ORIGINS` | 允许的 CORS 来源（逗号分隔） | `http://localhost:5173` |
+| `NEOCRAFT_SOCKET` | 守护进程 IPC Socket 路径 / 管道名称 | 平台默认 |
+| `NEOCRAFT_FRONTEND_DIST` | 前端静态文件路径 | `frontend-dist` |
+| `NEOCRAFT_AUTO_START_DAEMON` | 服务启动时自动启动守护进程 | `true` |
+| `NEOCRAFT_CORS_ORIGINS` | 允许的 CORS 来源（逗号分隔） | `http://localhost:1145`, `http://127.0.0.1:1145`, `http://localhost:3001`, `http://127.0.0.1:3001`, `http://localhost:3000` |
 
 ## 支持的服务器类型
 

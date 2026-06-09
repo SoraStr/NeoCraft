@@ -10,6 +10,8 @@ const buildDir = join(root, 'build');
 const isWindows = platform() === 'win32';
 const npm = isWindows ? 'npm.cmd' : 'npm';
 const daemonExe = `neocraft-daemon${isWindows ? '.exe' : ''}`;
+const defaultHost = '127.0.0.1';
+const defaultServerPort = '3001';
 
 console.log('==> NeoCraft Build');
 console.log(`    Output: ${buildDir}`);
@@ -43,7 +45,7 @@ if (!isWindows) {
 console.log('');
 console.log('==> Build complete');
 console.log(`    Start: node ${join(buildDir, 'start.mjs')}`);
-console.log('    Default URL: http://127.0.0.1:1145');
+console.log(`    Default URL: http://${defaultHost}:${defaultServerPort}`);
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
@@ -82,8 +84,8 @@ await mkdir(dataDir, { recursive: true });
 
 const env = {
   ...process.env,
-  HOST: process.env.HOST || process.env.NEOCRAFT_HOST || '127.0.0.1',
-  PORT: process.env.PORT || process.env.NEOCRAFT_PORT || '1145',
+  HOST: process.env.HOST || process.env.NEOCRAFT_HOST || '${defaultHost}',
+  PORT: process.env.PORT || process.env.NEOCRAFT_PORT || '${defaultServerPort}',
   NEOCRAFT_DATA_DIR: dataDir,
   NEOCRAFT_DAEMON_BIN: daemonBin,
   NEOCRAFT_FRONTEND_DIST: join(dir, 'frontend-dist'),

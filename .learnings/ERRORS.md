@@ -3,6 +3,32 @@
 Command failures and integration errors.
 
 ---
+
+## [ERR-20260609-002] cargo-test-filter
+
+**Logged**: 2026-06-09T11:56:00+08:00
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+Used an unsupported multi-filter form while verifying NeoCraft changes.
+
+### Error
+`cargo test name1 name2` failed because Cargo accepts a single test-name filter before `--`.
+
+### Context
+- Attempted to run two daemon test filters in one Cargo command after a port-default change.
+- Correct project command is `cd daemon && cargo test`, or one Cargo filter at a time.
+
+### Suggested Fix
+Use the package scripts directly unless the project has documented runner-specific flags.
+
+### Metadata
+- Reproducible: yes
+- Related Files: daemon/Cargo.toml
+
+---
 ## [ERR-20260609-001] vitest-cli-option
 
 **Logged**: 2026-06-09T11:16:20+08:00

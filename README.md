@@ -86,7 +86,7 @@ cd frontend && npm install && cd ..
 npm run dev
 ```
 
-Then open **http://localhost:1145** in your browser.
+Then open **http://localhost:1145** in your browser. In development, the Vite frontend uses port `1145` and proxies API requests to `neocraft-server` on port `3001`.
 
 ## Production Build
 
@@ -103,6 +103,8 @@ The build output includes:
 - Compiled Node.js server (JavaScript)
 - Production server dependencies
 - Rust daemon binary
+
+Production starts `neocraft-server` on **http://127.0.0.1:3001** by default. Set `PORT` or `NEOCRAFT_PORT` if you need a different listen port.
 
 ## Manual Start (3 terminals)
 
@@ -277,17 +279,18 @@ neocraft-daemon [OPTIONS]
   --data-dir <PATH>   Data directory for instances and configs (default: ~/.neocraft)
 ```
 
+The daemon uses Unix sockets on macOS/Linux and named pipes on Windows; it does not bind TCP port `1145`.
+
 ### Server Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | API server listen port | `1145` |
+| `PORT` | API server listen port | `3001` |
 | `HOST` | API server listen host | `127.0.0.1` |
-| `IPC_SOCKET_PATH` | Path to daemon IPC socket | Platform default |
-| `FRONTEND_DIST` | Path to frontend static files | `../frontend/dist` |
-| `AUTO_START_DAEMON` | Auto-start daemon on server boot | `true` |
-| `AUTH_TOKEN` | API Bearer token (disabled if empty) | (empty) |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `http://localhost:5173` |
+| `NEOCRAFT_SOCKET` | Path to daemon IPC socket / pipe name | Platform default |
+| `NEOCRAFT_FRONTEND_DIST` | Path to frontend static files | `frontend-dist` |
+| `NEOCRAFT_AUTO_START_DAEMON` | Auto-start daemon on server boot | `true` |
+| `NEOCRAFT_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `http://localhost:1145`, `http://127.0.0.1:1145`, `http://localhost:3001`, `http://127.0.0.1:3001`, `http://localhost:3000` |
 
 ## Supported Server Types
 

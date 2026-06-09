@@ -1,6 +1,7 @@
 use std::path::Path;
 use neocraft_daemon::instance::{InstanceManager, ServerType};
 use neocraft_daemon::java_args::{build_java_command, version_at_least};
+use neocraft_daemon::management::SMP_ALLOWED_ORIGINS;
 use neocraft_daemon::protocol::{Event, InstanceState};
 use tokio::sync::broadcast;
 use tempfile::TempDir;
@@ -473,9 +474,7 @@ async fn test_smp_config_for_1_21_9() {
         instance.port + 100
     )));
     assert!(props.contains("management-server-secret="));
-    assert!(props.contains(
-        "management-server-allowed-origins=http://localhost:1145"
-    ));
+    assert!(props.contains(&format!("management-server-allowed-origins={SMP_ALLOWED_ORIGINS}")));
     // The secret in file should match the token on the instance
     assert!(props.contains(&instance.management_token));
     // TLS is disabled by default (localhost self-signed cert breaks browsers)

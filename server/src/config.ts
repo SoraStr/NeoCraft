@@ -30,9 +30,13 @@ export interface ListenConfig {
   port: number;
 }
 
+export const DEFAULT_SERVER_PORT = 3001;
+
 const DEFAULT_CORS_ORIGINS = [
   'http://localhost:1145',
   'http://127.0.0.1:1145',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
   'http://localhost:3000',
 ];
 
@@ -74,7 +78,7 @@ export function loadAuthToken(dataDir: string): string | null {
 export function loadListenConfig(): ListenConfig {
   return {
     host: process.env.HOST || '127.0.0.1',
-    port: numberEnv('PORT', 3001),
+    port: numberEnv('PORT', DEFAULT_SERVER_PORT),
   };
 }
 

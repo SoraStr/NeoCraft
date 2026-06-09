@@ -12,6 +12,7 @@ use crate::util::{random_alphanumeric, random_hex};
 
 const SMP_PORT_OFFSET: u16 = 100;
 const RCON_PORT_OFFSET: u16 = 10;
+pub const SMP_ALLOWED_ORIGINS: &str = "http://localhost:1145,http://127.0.0.1:1145,http://localhost:3001,http://127.0.0.1:3001";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManagementProtocol {
@@ -111,7 +112,7 @@ async fn configure_smp(
         "management-server-enabled=true\n\
          management-server-port={port}\n\
          management-server-secret={token}\n\
-         management-server-allowed-origins=http://localhost:1145\n\
+         management-server-allowed-origins={SMP_ALLOWED_ORIGINS}\n\
          management-server-tls-enabled=false\n\
          {tls_config}",
     );
