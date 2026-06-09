@@ -26,7 +26,7 @@ export function MoreTab({ client }: MoreTabProps) {
     setSaving(true);
     setError(null);
     try {
-      await client.call('server/save', [{ flush: true }]);
+      await client.call('server/save', [true]);
       showSuccess(t('management.action.worldSaved'));
     } catch (err: any) {
       setError(err.message || 'Failed to save world.');

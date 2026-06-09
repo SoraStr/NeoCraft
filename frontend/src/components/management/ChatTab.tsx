@@ -1,13 +1,23 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
+import type { PlayerDto } from '../../lib/types';
 import { ErrorBanner } from '../ui/ErrorBanner';
 
 interface ChatTabProps {
   client: SmpClient;
+  players: PlayerDto[];
 }
 
-export function ChatTab({ client }: ChatTabProps) {
+export function buildSystemMessage(message: string, overlay: boolean, players: PlayerDto[]) {
+  return {
+    message: { literal: message, translatable: '', translatableParams: [] },
+    overlay,
+    receivingPlayers: players,
+  };
+}
+
+export function ChatTab({ client, players }: ChatTabProps) {
   const { t } = useTranslation();
   const [message, setMessage] = useState('');
   const [overlay, setOverlay] = useState(false);
@@ -24,11 +34,12 @@ export function ChatTab({ client }: ChatTabProps) {
     setSent(false);
 
     try {
-      await client.call('server/system_message', [{
-        message: { literal: trimmed, translatable: '', translatableParams: [] },
-        overlay,
-        receivingPlayers: [],
-      }]);
+      if (players.length === 0) {
+        setError(t('management.status.noPlayers'));
+        return;
+      }
+
+      await client.call('server/system_message', [buildSystemMessage(trimmed, overlay, players)]);
       setMessage('');
       setSent(true);
       setTimeout(() => setSent(false), 2000);

@@ -1,69 +1,23 @@
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SmpClient } from '../../lib/smp-client';
+import type { ActivityEntry, ActivityType } from '../../hooks/useSmpActivity';
 import type { ServerStatus } from '../../lib/types';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { EmptyState } from '../ui/EmptyState';
 
 interface OverviewTabProps {
-  client: SmpClient;
+  status: ServerStatus | null;
+  loading: boolean;
+  error: string | null;
+  events: ActivityEntry[];
+  onRetry: () => void;
 }
 
-interface JoinLeaveEntry {
-  type: 'joined' | 'left';
-  player: string;
-  time: number;
-}
-
-export function OverviewTab({ client }: OverviewTabProps) {
+export function OverviewTab({ status, loading, error, events, onRetry }: OverviewTabProps) {
   const { t } = useTranslation();
-  const [status, setStatus] = useState<ServerStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [events, setEvents] = useState<JoinLeaveEntry[]>([]);
-
-  const fetchStatus = async () => {
-    try {
-      const result = (await client.call('server/status')) as ServerStatus;
-      setStatus(result);
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch server status.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStatus();
-
-    const unsubJoin = client.onNotification('players/joined', (params: any) => {
-      const data = Array.isArray(params) ? params[0] : params;
-      const name = data?.player || data?.name || 'Unknown';
-      setEvents((prev) => {
-        const entry: JoinLeaveEntry = { type: 'joined', player: name, time: Date.now() };
-        return [entry, ...prev].slice(0, 20);
-      });
-    });
-
-    const unsubLeft = client.onNotification('players/left', (params: any) => {
-      const data = Array.isArray(params) ? params[0] : params;
-      const name = data?.player || data?.name || 'Unknown';
-      setEvents((prev) => {
-        const entry: JoinLeaveEntry = { type: 'left', player: name, time: Date.now() };
-        return [entry, ...prev].slice(0, 20);
-      });
-    });
-
-    return () => {
-      unsubJoin();
-      unsubLeft();
-    };
-  }, [client]);
 
   if (loading) return <LoadingSkeleton lines={4} />;
-  if (error) return <ErrorBanner message={error} onRetry={fetchStatus} />;
+  if (error) return <ErrorBanner message={error} onRetry={onRetry} />;
   if (!status) return <EmptyState title="No status data" />;
 
   const running = status.started;
@@ -88,16 +42,18 @@ export function OverviewTab({ client }: OverviewTabProps) {
 
       {/* Notification Events */}
       <div>
-        <h3 className="text-sm font-semibold text-app-text mb-3">{t('management.status.playerActivity')} <span className="text-app-text-muted font-normal ml-2">({t('management.status.live')})</span></h3>
+        <h3 className="text-sm font-semibold text-app-text mb-3">{t('management.status.serverActivity')} <span className="text-app-text-muted font-normal ml-2">({t('management.status.live')})</span></h3>
         {events.length === 0 ? (
           <p className="text-sm text-app-text-muted py-4 text-center bg-app-surface border border-app-border rounded-xl">{t('management.status.waitingForEvents')}</p>
         ) : (
           <div className="rounded-xl bg-app-surface border border-app-border divide-y divide-app-border-light max-h-64 overflow-y-auto">
             {events.map((ev, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.type === 'joined' ? 'bg-app-green' : 'bg-app-red'}`} />
-                <span className="text-sm font-medium text-app-text">{ev.player}</span>
-                <span className="text-xs text-app-text-muted">{ev.type === 'joined' ? t('management.overview.joined') : t('management.overview.left')}</span>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${activityDotClass(ev.type)}`} />
+                <span className="text-sm font-medium text-app-text">{ev.subject}</span>
+                <span className="text-xs text-app-text-muted">
+                  {ev.type === 'custom' ? ev.label : t(`management.overview.events.${ev.type}`)}
+                </span>
                 <span className="text-xs text-app-text-muted ml-auto tabular-nums">{new Date(ev.time).toLocaleTimeString()}</span>
               </div>
             ))}
@@ -106,4 +62,16 @@ export function OverviewTab({ client }: OverviewTabProps) {
       </div>
     </div>
   );
+}
+
+function activityDotClass(type: ActivityType): string {
+  if (type === 'joined' || type === 'serverStarted' || type === 'operatorAdded' || type === 'allowlistAdded') {
+    return 'bg-app-green';
+  }
+
+  if (type === 'left' || type === 'serverStopping' || type === 'banAdded' || type === 'ipBanAdded') {
+    return 'bg-app-red';
+  }
+
+  return 'bg-app-accent';
 }

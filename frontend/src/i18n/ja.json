@@ -219,8 +219,9 @@
       "noOperators": "管理者なし",
       "noGamerules": "ゲームルールなし",
       "noSettings": "設定なし",
-      "waitingForEvents": "プレイヤーイベント待機中...",
-      "playerActivity": "プレイヤーアクティビティ",
+      "waitingForEvents": "サーバーイベント待機中...",
+      "playerActivity": "サーバーアクティビティ",
+      "serverActivity": "サーバーアクティビティ",
       "live": "リアルタイム"
     },
     "overview": {
@@ -230,7 +231,26 @@
       "running": "実行中",
       "stopped": "停止中",
       "joined": "参加",
-      "left": "退出"
+      "left": "退出",
+      "activity": "接続アクティビティ",
+      "events": {
+        "joined": "参加",
+        "left": "退出",
+        "serverStarted": "サーバー起動",
+        "serverStopping": "サーバー停止中",
+        "serverSaving": "ワールド保存開始",
+        "serverSaved": "ワールド保存完了",
+        "activity": "接続アクティビティ",
+        "operatorAdded": "OPに追加",
+        "operatorRemoved": "OPから削除",
+        "allowlistAdded": "ホワイトリストに追加",
+        "allowlistRemoved": "ホワイトリストから削除",
+        "ipBanAdded": "IP BAN追加",
+        "ipBanRemoved": "IP BAN解除",
+        "banAdded": "プレイヤーBAN追加",
+        "banRemoved": "プレイヤーBAN解除",
+        "gameruleUpdated": "ゲームルール更新"
+      }
     },
     "buttons": {
       "save": "保存",

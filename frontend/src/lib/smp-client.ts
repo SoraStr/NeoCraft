@@ -154,6 +154,14 @@ export class SmpClient {
   }
 
   call(method: string, params?: unknown[]): Promise<unknown> {
+    return this.callMethod(`${CALL_PREFIX}${method}`, params);
+  }
+
+  callRaw(method: string, params?: unknown[]): Promise<unknown> {
+    return this.callMethod(method, params);
+  }
+
+  private callMethod(method: string, params?: unknown[]): Promise<unknown> {
     if (!this.connected) {
       return Promise.reject(new Error('Not connected'));
     }
@@ -161,7 +169,7 @@ export class SmpClient {
     const id = this.nextId++;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
-      method: `${CALL_PREFIX}${method}`,
+      method,
       params,
       id,
     };
@@ -189,18 +197,21 @@ export class SmpClient {
    * Returns an unsubscribe function; call it to remove the handler.
    */
   onNotification(method: string, handler: NotificationHandler): () => void {
-    const fullMethod = `${NOTIFICATION_PREFIX}${method}`;
-    let handlers = this.notificationHandlers.get(fullMethod);
+    return this.onRawNotification(`${NOTIFICATION_PREFIX}${method}`, handler);
+  }
+
+  onRawNotification(method: string, handler: NotificationHandler): () => void {
+    let handlers = this.notificationHandlers.get(method);
     if (!handlers) {
       handlers = new Set();
-      this.notificationHandlers.set(fullMethod, handlers);
+      this.notificationHandlers.set(method, handlers);
     }
     handlers.add(handler);
 
     return () => {
       handlers.delete(handler);
       if (handlers.size === 0) {
-        this.notificationHandlers.delete(fullMethod);
+        this.notificationHandlers.delete(method);
       }
     };
   }

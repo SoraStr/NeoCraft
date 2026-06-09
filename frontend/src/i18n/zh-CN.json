@@ -221,8 +221,9 @@
       "noOperators": "暂无管理员",
       "noGamerules": "暂无游戏规则",
       "noSettings": "暂无设置",
-      "waitingForEvents": "等待玩家事件...",
-      "playerActivity": "玩家动态",
+      "waitingForEvents": "等待服务器事件...",
+      "playerActivity": "服务器动态",
+      "serverActivity": "服务器动态",
       "live": "实时"
     },
     "overview": {
@@ -232,7 +233,26 @@
       "running": "运行中",
       "stopped": "已停止",
       "joined": "加入了",
-      "left": "离开了"
+      "left": "离开了",
+      "activity": "连接活动",
+      "events": {
+        "joined": "加入了",
+        "left": "离开了",
+        "serverStarted": "服务器已启动",
+        "serverStopping": "服务器正在停止",
+        "serverSaving": "开始保存世界",
+        "serverSaved": "世界保存完成",
+        "activity": "连接活动",
+        "operatorAdded": "被设为管理员",
+        "operatorRemoved": "被移除管理员",
+        "allowlistAdded": "加入白名单",
+        "allowlistRemoved": "移出白名单",
+        "ipBanAdded": "IP 已封禁",
+        "ipBanRemoved": "IP 已解封",
+        "banAdded": "玩家已封禁",
+        "banRemoved": "玩家已解封",
+        "gameruleUpdated": "游戏规则已更新"
+      }
     },
     "buttons": {
       "save": "保存",
