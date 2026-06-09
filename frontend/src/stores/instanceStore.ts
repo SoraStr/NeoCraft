@@ -15,7 +15,8 @@ interface InstanceStore {
   // Actions
   fetchInstances: () => Promise<void>;
   setDownloadProgress: (progress: { taskId: string; percent: number; downloaded: number; total: number } | null) => void;
-  createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string) => Promise<Instance>;
+  createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string, javaPath?: string) => Promise<Instance>;
+  importInstance: (name: string, sourceDir: string, port?: number, javaArgs?: string, javaPath?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
   startInstance: (id: string) => Promise<void>;
   stopInstance: (id: string) => Promise<void>;
@@ -45,39 +46,62 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
     }
   },
 
-  createInstance: async (name, type, version, port, downloadUrl) => {
-    const instance = await api.createInstance({ name, type: type as any, version, port, downloadUrl });
+  createInstance: async (name, type, version, port, downloadUrl, javaPath) => {
+    const instance = await api.createInstance({ name, type: type as any, version, port, downloadUrl, javaPath });
+    set((state) => ({ instances: [...state.instances, instance] }));
+    return instance;
+  },
+
+  importInstance: async (name, sourceDir, port, javaArgs, javaPath) => {
+    const instance = await api.importInstance({ name, sourceDir, port, javaArgs, javaPath });
     set((state) => ({ instances: [...state.instances, instance] }));
     return instance;
   },
 
   deleteInstance: async (id) => {
-    await api.deleteInstance(id);
-    set((state) => ({
-      instances: state.instances.filter((i) => i.id !== id),
-      selectedId: state.selectedId === id ? null : state.selectedId,
-    }));
+    try {
+      await api.deleteInstance(id);
+      set((state) => ({
+        instances: state.instances.filter((i) => i.id !== id),
+        selectedId: state.selectedId === id ? null : state.selectedId,
+        error: null,
+      }));
+    } catch (err: any) {
+      set({ error: err.message });
+    }
   },
 
   startInstance: async (id) => {
     await api.startInstance(id);
     set((state) => ({
-      instances: state.instances.map((i) =>
-        i.id === id ? { ...i, state: 'starting' as InstanceState } : i
-      ),
+      instances: state.instances.map((i) => {
+        if (i.id !== id) return i;
+        // Don't overwrite if WebSocket already delivered the Running event
+        if (i.state === 'running') return i;
+        return { ...i, state: 'starting' as InstanceState };
+      }),
     }));
   },
 
   stopInstance: async (id) => {
     await api.stopInstance(id);
     set((state) => ({
-      instances: state.instances.map((i) =>
-        i.id === id ? { ...i, state: 'stopping' as InstanceState } : i
-      ),
+      instances: state.instances.map((i) => {
+        if (i.id !== id) return i;
+        // Don't overwrite if WebSocket already delivered the Stopped event
+        if (i.state === 'stopped' || i.state === 'crashed') return i;
+        return { ...i, state: 'stopping' as InstanceState };
+      }),
     }));
   },
 
   restartInstance: async (id) => {
+    // Set to stopping first, then the daemon will emit events for actual transitions
+    set((state) => ({
+      instances: state.instances.map((i) =>
+        i.id === id ? { ...i, state: 'stopping' as InstanceState } : i
+      ),
+    }));
     await api.restartInstance(id);
   },
 

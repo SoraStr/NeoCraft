@@ -39,6 +39,18 @@ pub enum Method {
     MonitorUnsubscribe,
     #[serde(rename = "instance.command")]
     InstanceCommand,
+    #[serde(rename = "instance.import")]
+    InstanceImport,
+    #[serde(rename = "files.list")]
+    FilesList,
+    #[serde(rename = "files.delete")]
+    FilesDelete,
+    #[serde(rename = "files.write")]
+    FilesWrite,
+    #[serde(rename = "files.rename")]
+    FilesRename,
+    #[serde(rename = "files.read")]
+    FilesRead,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

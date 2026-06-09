@@ -1,4 +1,13 @@
-import type { Instance, ServerVersion, CreateInstanceInput, FabricVersionMeta } from './types';
+import type {
+  CreateInstanceInput,
+  FabricVersionMeta,
+  Instance,
+  PluginMarketDetails,
+  PluginMarketProvider,
+  PluginMarketResult,
+  PluginMarketVersion,
+  ServerVersion,
+} from './types';
 
 const API_HOST = (import.meta.env.VITE_API_HOST || '').replace(/\/$/, '');
 const BASE = API_HOST ? `${API_HOST}/api` : '/api';
@@ -287,4 +296,35 @@ export async function scanMods(id: string): Promise<{ scanned: number; mods: Mod
     method: 'POST',
     timeoutMs: 600000,
   });
+}
+
+export async function searchPluginMarket(
+  provider: PluginMarketProvider,
+  query: string,
+): Promise<PluginMarketResult[]> {
+  return request<PluginMarketResult[]>(withQuery('/plugin-market/search', {
+    provider,
+    q: query,
+    limit: '20',
+  }), { timeoutMs: 20000 });
+}
+
+export async function getPluginMarketDetails(
+  provider: PluginMarketProvider,
+  projectId: string,
+): Promise<PluginMarketDetails> {
+  return request<PluginMarketDetails>(
+    `/plugin-market/${provider}/projects/${encodeURIComponent(projectId)}`,
+    { timeoutMs: 20000 },
+  );
+}
+
+export async function getPluginMarketVersions(
+  provider: PluginMarketProvider,
+  projectId: string,
+): Promise<PluginMarketVersion[]> {
+  return request<PluginMarketVersion[]>(
+    `/plugin-market/${provider}/projects/${encodeURIComponent(projectId)}/versions`,
+    { timeoutMs: 20000 },
+  );
 }

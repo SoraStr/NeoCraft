@@ -21,12 +21,21 @@ pub struct CacheInfo {
     pub cache_dir: PathBuf,
     pub server_type: String,
     pub version: String,
+    /// Optional download URL hash to disambiguate same-type+version variants
+    /// (e.g. Fabric with different loader/installer combinations).
+    pub url_hash: Option<String>,
 }
 
 impl CacheInfo {
-    /// Build the cached file path: {cache_dir}/{type}-{version}.jar
+    /// Build the cached file path.
+    /// If `url_hash` is set, the filename includes a short hash to prevent
+    /// collisions between different builds of the same type+version.
     pub fn cached_path(&self) -> PathBuf {
-        self.cache_dir.join(format!("{}-{}.jar", self.server_type, self.version))
+        if let Some(ref hash) = self.url_hash {
+            self.cache_dir.join(format!("{}-{}-{}.jar", self.server_type, self.version, hash))
+        } else {
+            self.cache_dir.join(format!("{}-{}.jar", self.server_type, self.version))
+        }
     }
 }
 
@@ -148,6 +157,7 @@ mod tests {
             cache_dir: PathBuf::from("/tmp/neocraft-cache"),
             server_type: "paper".into(),
             version: "1.21.5".into(),
+            url_hash: None,
         };
         assert_eq!(
             cache.cached_path(),
@@ -161,6 +171,7 @@ mod tests {
             cache_dir: PathBuf::from("/cache"),
             server_type: "vanilla".into(),
             version: "1.21.0".into(),
+            url_hash: None,
         };
         assert_eq!(vanilla.cached_path(), PathBuf::from("/cache/vanilla-1.21.0.jar"));
 
@@ -168,6 +179,7 @@ mod tests {
             cache_dir: PathBuf::from("/cache"),
             server_type: "fabric".into(),
             version: "1.20.4".into(),
+            url_hash: None,
         };
         assert_eq!(fabric.cached_path(), PathBuf::from("/cache/fabric-1.20.4.jar"));
     }

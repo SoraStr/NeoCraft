@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -8,6 +9,7 @@ interface MoreTabProps {
 }
 
 export function MoreTab({ client }: MoreTabProps) {
+  const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [saveConfirm, setSaveConfirm] = useState(false);
@@ -24,8 +26,8 @@ export function MoreTab({ client }: MoreTabProps) {
     setSaving(true);
     setError(null);
     try {
-      await client.call('server/save');
-      showSuccess('World saved successfully.');
+      await client.call('server/save', [{ flush: true }]);
+      showSuccess(t('management.action.worldSaved'));
     } catch (err: any) {
       setError(err.message || 'Failed to save world.');
     } finally {
@@ -39,7 +41,7 @@ export function MoreTab({ client }: MoreTabProps) {
     setError(null);
     try {
       await client.call('server/stop');
-      showSuccess('Server stop command sent.');
+      showSuccess(t('management.action.stopCommandSent'));
     } catch (err: any) {
       setError(err.message || 'Failed to stop server.');
     } finally {
@@ -50,7 +52,7 @@ export function MoreTab({ client }: MoreTabProps) {
 
   return (
     <div className="animate-fade-in space-y-6 max-w-lg">
-      <h3 className="text-sm font-semibold text-app-text">Server Actions</h3>
+      <h3 className="text-sm font-semibold text-app-text">{t('management.tabs.more')}</h3>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
@@ -65,17 +67,11 @@ export function MoreTab({ client }: MoreTabProps) {
       <div className="rounded-xl bg-app-surface border border-app-border p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h4 className="text-sm font-semibold text-app-text">Save World</h4>
-            <p className="text-xs text-app-text-secondary mt-1">
-              Force-save all world data to disk. This may cause a brief lag.
-            </p>
+            <h4 className="text-sm font-semibold text-app-text">{t('management.action.saveWorld')}</h4>
+            <p className="text-xs text-app-text-secondary mt-1">{t('management.action.saveWorldDesc')}</p>
           </div>
-          <button
-            onClick={() => setSaveConfirm(true)}
-            disabled={saving}
-            className="px-4 py-2 bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex-shrink-0"
-          >
-            {saving ? 'Saving...' : 'Save All'}
+          <button onClick={() => setSaveConfirm(true)} disabled={saving} className="px-4 py-2 bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex-shrink-0">
+            {saving ? t('management.buttons.saving') : t('management.buttons.saveAll')}
           </button>
         </div>
       </div>
@@ -84,40 +80,17 @@ export function MoreTab({ client }: MoreTabProps) {
       <div className="rounded-xl bg-app-surface border border-app-red/20 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h4 className="text-sm font-semibold text-app-text">Stop Server</h4>
-            <p className="text-xs text-app-text-secondary mt-1">
-              Gracefully stop the Minecraft server. Players will be disconnected.
-            </p>
+            <h4 className="text-sm font-semibold text-app-text">{t('management.action.stopServer')}</h4>
+            <p className="text-xs text-app-text-secondary mt-1">{t('management.action.stopServerDesc')}</p>
           </div>
-          <button
-            onClick={() => setStopConfirm(true)}
-            disabled={stopping}
-            className="px-4 py-2 bg-app-red hover:bg-red-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex-shrink-0"
-          >
-            {stopping ? 'Stopping...' : 'Stop Server'}
+          <button onClick={() => setStopConfirm(true)} disabled={stopping} className="px-4 py-2 bg-app-red hover:bg-red-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex-shrink-0">
+            {stopping ? t('management.buttons.stopping') : t('management.buttons.stopServer')}
           </button>
         </div>
       </div>
 
-      <ConfirmDialog
-        open={saveConfirm}
-        title="Save World"
-        message="Are you sure you want to force-save the world? This may cause a brief server lag."
-        confirmLabel="Save All"
-        variant="warning"
-        onConfirm={handleSave}
-        onCancel={() => setSaveConfirm(false)}
-      />
-
-      <ConfirmDialog
-        open={stopConfirm}
-        title="Stop Server"
-        message="Are you sure you want to stop the Minecraft server? All players will be disconnected and unsaved progress may be lost."
-        confirmLabel="Stop Server"
-        variant="danger"
-        onConfirm={handleStop}
-        onCancel={() => setStopConfirm(false)}
-      />
+      <ConfirmDialog open={saveConfirm} title={t('management.confirm.saveWorldTitle')} message={t('management.confirm.saveWorldMessage')} confirmLabel={t('management.buttons.saveAll')} variant="warning" onConfirm={handleSave} onCancel={() => setSaveConfirm(false)} />
+      <ConfirmDialog open={stopConfirm} title={t('management.confirm.stopServerTitle')} message={t('management.confirm.stopServerMessage')} confirmLabel={t('management.buttons.stopServer')} variant="danger" onConfirm={handleStop} onCancel={() => setStopConfirm(false)} />
     </div>
   );
 }

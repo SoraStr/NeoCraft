@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
 import type { UserBanDto } from '../../lib/types';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
@@ -6,11 +7,10 @@ import { ErrorBanner } from '../ui/ErrorBanner';
 import { EmptyState } from '../ui/EmptyState';
 import { ConfirmDialog } from './ConfirmDialog';
 
-interface BanTabProps {
-  client: SmpClient;
-}
+interface BanTabProps { client: SmpClient; }
 
 export function BanTab({ client }: BanTabProps) {
+  const { t } = useTranslation();
   const [bans, setBans] = useState<UserBanDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function BanTab({ client }: BanTabProps) {
 
   const fetchBans = async () => {
     try {
-      const result = (await client.call('bans/list')) as UserBanDto[];
+      const result = (await client.call('bans')) as UserBanDto[];
       setBans(Array.isArray(result) ? result : []);
       setError(null);
     } catch (err: any) {
@@ -45,10 +45,9 @@ export function BanTab({ client }: BanTabProps) {
     setAdding(true);
     setActionError(null);
     try {
-      const params: any = { player: name };
-      if (reason.trim()) params.reason = reason.trim();
+      const params: any = { player: { name }, reason: reason.trim() || undefined };
       if (expires.trim()) params.expires = expires.trim();
-      await client.call('bans/add', [params]);
+      await client.call('bans/add', [[params]]);
       setPlayerName('');
       setReason('');
       setExpires('');
@@ -65,7 +64,7 @@ export function BanTab({ client }: BanTabProps) {
     setRemoving(name);
     setActionError(null);
     try {
-      await client.call('bans/remove', [{ player: name }]);
+      await client.call('bans/remove', [[{ name }]]);
       await fetchBans();
     } catch (err: any) {
       setActionError(err.message || 'Failed to remove ban.');
@@ -94,104 +93,45 @@ export function BanTab({ client }: BanTabProps) {
   return (
     <div className="animate-fade-in space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-app-text">
-          Player Bans ({bans.length})
-        </h3>
-        <button
-          onClick={fetchBans}
-          className="text-xs font-medium text-app-text-muted hover:text-app-accent transition-colors"
-        >
-          Refresh
-        </button>
+        <h3 className="text-sm font-semibold text-app-text">{t('management.tabs.bans')} ({bans.length})</h3>
+        <button onClick={fetchBans} className="text-xs font-medium text-app-text-muted hover:text-app-accent transition-colors">{t('management.buttons.refresh')}</button>
       </div>
 
-      {actionError && (
-        <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
-      )}
+      {actionError && <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />}
 
-      {/* Add ban form */}
       <div className="rounded-xl bg-app-surface border border-app-border p-4 space-y-3">
-        <h4 className="text-xs font-semibold text-app-text-muted uppercase tracking-wider">
-          Add Ban
-        </h4>
+        <h4 className="text-xs font-semibold text-app-text-muted uppercase tracking-wider">{t('management.buttons.add')}</h4>
         <div className="flex flex-wrap gap-2">
-          <input
-            type="text"
-            value={playerName}
-            onChange={(e) => setPlayerName(e.target.value)}
-            placeholder="Player name"
-            className="flex-1 min-w-[120px] px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors"
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          />
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason (optional)"
-            className="flex-1 min-w-[120px] px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors"
-          />
-          <input
-            type="text"
-            value={expires}
-            onChange={(e) => setExpires(e.target.value)}
-            placeholder="Expires (optional)"
-            className="w-40 px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors"
-          />
-          <button
-            onClick={handleAdd}
-            disabled={!playerName.trim() || adding}
-            className="px-4 py-2 bg-app-red hover:bg-red-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
-          >
-            {adding ? 'Adding...' : 'Ban'}
+          <input type="text" value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder={t('management.fields.playerName')} className="flex-1 min-w-[120px] px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors" onKeyDown={(e) => e.key === 'Enter' && handleAdd()} />
+          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('management.fields.reasonOptional')} className="flex-1 min-w-[120px] px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors" />
+          <input type="text" value={expires} onChange={(e) => setExpires(e.target.value)} placeholder={t('management.fields.expiresOptional')} className="w-40 px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors" />
+          <button onClick={handleAdd} disabled={!playerName.trim() || adding} className="px-4 py-2 bg-app-red hover:bg-red-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors">
+            {adding ? t('management.buttons.adding') : t('management.buttons.ban')}
           </button>
         </div>
       </div>
 
-      {/* Clear all */}
       {bans.length > 0 && (
-        <button
-          onClick={() => setClearConfirm(true)}
-          disabled={clearing}
-          className="text-xs font-medium text-app-red hover:underline transition-colors"
-        >
-          Clear All Bans
-        </button>
+        <button onClick={() => setClearConfirm(true)} disabled={clearing} className="text-xs font-medium text-app-red hover:underline transition-colors">{t('management.buttons.clearAll')}</button>
       )}
 
       {bans.length === 0 ? (
-        <EmptyState title="No bans" description="Banned players will appear here." />
+        <EmptyState title={t('management.status.noBans')} description="" />
       ) : (
         <div className="rounded-xl bg-app-surface border border-app-border divide-y divide-app-border-light">
           {bans.map((ban, i) => {
             const name = ban.player?.name || 'Unknown';
             return (
               <div key={name + i} className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium text-app-text">{name}</span>
+                <div className="min-w-0 flex-1"><span className="text-sm font-medium text-app-text">{name}</span>
                   <div className="flex gap-3 mt-0.5">
-                    {ban.reason && (
-                      <span className="text-xs text-app-text-muted">
-                        Reason: {ban.reason}
-                      </span>
-                    )}
-                    {ban.expires && (
-                      <span className="text-xs text-app-amber">
-                        Expires: {ban.expires}
-                      </span>
-                    )}
-                    {ban.source && (
-                      <span className="text-xs text-app-text-muted">
-                        By: {ban.source}
-                      </span>
-                    )}
+                    {ban.reason && <span className="text-xs text-app-text-muted">{ban.reason}</span>}
+                    {ban.expires && <span className="text-xs text-app-amber">{ban.expires}</span>}
+                    {ban.source && <span className="text-xs text-app-text-muted">{ban.source}</span>}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleRemove(ban)}
-                  disabled={removing === name}
-                  className="px-3 py-1.5 text-xs font-semibold text-app-accent hover:bg-app-accent-bg rounded-lg transition-colors disabled:opacity-40 flex-shrink-0 ml-2"
-                >
-                  {removing === name ? 'Pardoning...' : 'Pardon'}
+                <button onClick={() => handleRemove(ban)} disabled={removing === name} className="px-3 py-1.5 text-xs font-semibold text-app-accent hover:bg-app-accent-bg rounded-lg transition-colors disabled:opacity-40 flex-shrink-0 ml-2">
+                  {removing === name ? t('management.buttons.pardoning') : t('management.buttons.pardon')}
                 </button>
               </div>
             );
@@ -199,15 +139,7 @@ export function BanTab({ client }: BanTabProps) {
         </div>
       )}
 
-      <ConfirmDialog
-        open={clearConfirm}
-        title="Clear All Bans"
-        message={`Are you sure you want to remove all ${bans.length} bans?`}
-        confirmLabel="Clear All"
-        variant="danger"
-        onConfirm={handleClear}
-        onCancel={() => setClearConfirm(false)}
-      />
+      <ConfirmDialog open={clearConfirm} title={t('management.confirm.clearBansTitle')} message={t('management.confirm.clearBansMessage')} confirmLabel={t('management.buttons.clearAll')} variant="danger" onConfirm={handleClear} onCancel={() => setClearConfirm(false)} />
     </div>
   );
 }

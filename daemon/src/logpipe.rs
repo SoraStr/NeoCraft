@@ -37,7 +37,13 @@ impl LogPipe {
                 result = stdout_lines.next_line() => {
                     match result {
                         Ok(Some(line)) => Self::emit_dedup(&self, line, &mut recent),
-                        Ok(None) => break,
+                        Ok(None) => {
+                            // stdout closed — drain remaining stderr before exiting
+                            while let Ok(Some(line)) = stderr_lines.next_line().await {
+                                Self::emit_dedup(&self, line, &mut recent);
+                            }
+                            break;
+                        }
                         Err(_) => break,
                     }
                 }

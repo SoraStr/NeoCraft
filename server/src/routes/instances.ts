@@ -1,209 +1,298 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import { IpcClient } from '../services/ipc-client';
-import { RconClient } from '../services/rcon-client';
+import { type FastifyInstance, type FastifyPluginAsync } from 'fastify';
+import { IpcClient } from '../services/ipc-client.js';
+import { RconClient } from '../services/rcon-client.js';
+import { getMods, scanMods } from '../services/mod-service.js';
+import {
+  assertCommand,
+  assertInstanceId,
+  assertSafeSubpath,
+  httpError,
+  ipcCall,
+  okObject,
+  optionalPort,
+  sendRouteError,
+} from './http.js';
 
 interface InstanceRouteOptions {
   ipc: IpcClient;
 }
 
-const VALID_TYPES = ['vanilla', 'paper', 'spigot', 'fabric'];
+type ServerType = 'vanilla' | 'paper' | 'spigot' | 'fabric' | 'forge' | 'custom';
 
-function validateId(id: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(id) && id.length <= 64;
+interface CreateInstanceBody {
+  name?: string;
+  type?: string;
+  version?: string;
+  port?: number;
+  downloadUrl?: string;
+  javaPath?: string;
 }
 
-/** Wrap IPC calls to catch connection errors and return 503 */
-async function ipcCall(
-  ipc: IpcClient,
-  method: string,
-  params: Record<string, unknown>,
-  timeoutMs?: number,
-) {
-  const response = await ipc.request(method, params, { timeout: timeoutMs ?? 30000 });
-  if (response.error) {
-    throw { statusCode: response.error.code === 'NOT_FOUND' ? 404 : 400, message: response.error.message };
-  }
-  return response;
+interface ImportInstanceBody {
+  name?: string;
+  sourceDir?: string;
+  port?: number;
+  javaArgs?: string;
+  javaPath?: string;
 }
+
+interface FileWriteBody {
+  path?: string;
+  data?: string;
+}
+
+interface FileRenameBody {
+  oldPath?: string;
+  newPath?: string;
+}
+
+const VALID_TYPES = new Set<ServerType>(['vanilla', 'paper', 'spigot', 'fabric', 'forge', 'custom']);
+const SERVER_NAME_PATTERN = /^[a-zA-Z0-9一-鿿 _-]+$/;
 
 export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
   app: FastifyInstance,
-  opts: InstanceRouteOptions
+  opts: InstanceRouteOptions,
 ) => {
   const { ipc } = opts;
 
-  // List all instances
   app.get('/api/instances', async (_request, reply) => {
     try {
-      const response = await ipcCall(ipc, 'instance.list', {});
-      return response.result ?? [];
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      const list = await ipcCall<unknown[]>(ipc, 'instance.list', {});
+      return Array.isArray(list) ? list : [];
+    } catch (error) {
+      app.log.error({ error }, 'instance.list failed');
+      return sendRouteError(reply, error);
     }
   });
 
-  // Create instance
   app.post('/api/instances', async (request, reply) => {
     try {
-      const body = request.body as { name?: string; type?: string; version?: string; port?: number; downloadUrl?: string };
-      const { name, type, version, port, downloadUrl } = body;
+      const body = (request.body || {}) as CreateInstanceBody;
+      const name = assertServerName(body.name);
+      const type = assertServerType(body.type);
+      const version = assertText(body.version, 'Missing required fields: name, type, version');
+      const port = optionalPort(body.port, 25565);
 
-      if (!name || !type || !version) {
-        return reply.status(400).send({ error: 'Missing required fields: name, type, version' });
-      }
-      if (!VALID_TYPES.includes(type)) {
-        return reply.status(400).send({ error: `Invalid server type: ${type}. Must be one of: ${VALID_TYPES.join(', ')}` });
-      }
-
-      // Validate name
-      if (name.length > 64 || !/^[a-zA-Z0-9一-鿿 _-]+$/.test(name)) {
-        return reply.status(400).send({ error: 'Invalid server name. Use letters, numbers, spaces, hyphens, underscores.' });
+      if (body.downloadUrl && !body.downloadUrl.startsWith('https://')) {
+        httpError(400, 'Download URL must use HTTPS.');
       }
 
-      // Validate downloadUrl
-      if (downloadUrl && !downloadUrl.startsWith('https://')) {
-        return reply.status(400).send({ error: 'Download URL must use HTTPS.' });
-      }
+      const instance = await ipcCall(ipc, 'instance.create', {
+        name,
+        type,
+        version,
+        port,
+        download_url: body.downloadUrl || '',
+        java_path: body.javaPath || null,
+      }, 300000);
 
-      // Long timeout — daemon downloads the JAR during creation
-      const response = await ipcCall(ipc, 'instance.create', { name, type, version, port: port || 25565, download_url: downloadUrl || '' }, 300000);
-      return reply.status(201).send(response.result);
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      return reply.status(201).send(instance);
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // Get instance by ID
+  app.post('/api/instances/import', async (request, reply) => {
+    try {
+      const body = (request.body || {}) as ImportInstanceBody;
+      const name = assertServerName(body.name, 'Missing required fields: name, sourceDir');
+      const sourceDir = assertText(body.sourceDir, 'Missing required fields: name, sourceDir');
+
+      const instance = await ipcCall(ipc, 'instance.import', {
+        name,
+        source_dir: sourceDir,
+        port: optionalPort(body.port, 25565),
+        java_args: body.javaArgs || null,
+        java_path: body.javaPath || null,
+      }, 120000);
+
+      return reply.status(201).send(instance);
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
   app.get('/api/instances/:id', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const response = await ipcCall(ipc, 'instance.get', { id });
-      return response.result;
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      const id = routeId(request.params);
+      return await ipcCall(ipc, 'instance.get', { id });
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // Delete instance
   app.delete('/api/instances/:id', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const response = await ipcCall(ipc, 'instance.delete', { id });
+      const id = routeId(request.params);
+      await ipcCall(ipc, 'instance.delete', { id });
       return reply.status(204).send();
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // Start instance
   app.post('/api/instances/:id/start', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const response = await ipcCall(ipc, 'instance.start', { id });
-      return { ok: true, ...(response.result as Record<string, unknown> || {}) };
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      const id = routeId(request.params);
+      const result = await ipcCall(ipc, 'instance.start', { id });
+      return okObject(result);
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // Stop instance
   app.post('/api/instances/:id/stop', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const response = await ipcCall(ipc, 'instance.stop', { id });
-      return { ok: true, ...(response.result as Record<string, unknown> || {}) };
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      const id = routeId(request.params);
+      const result = await ipcCall(ipc, 'instance.stop', { id });
+      return okObject(result);
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // Send command
-  app.post('/api/instances/:id/command', async (request, reply) => {
-    try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const { command } = (request.body || {}) as { command?: string };
-      if (!command) {
-        return reply.status(400).send({ error: 'Missing command.' });
-      }
-      const response = await ipcCall(ipc, 'instance.command', { id, command });
-      return { ok: true, ...(response.result as Record<string, unknown> || {}) };
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
-    }
-  });
-
-  // Restart instance
   app.post('/api/instances/:id/restart', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const response = await ipcCall(ipc, 'instance.restart', { id });
-      return { ok: true, ...(response.result as Record<string, unknown> || {}) };
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `Daemon unavailable: ${err.message}` });
+      const id = routeId(request.params);
+      const result = await ipcCall(ipc, 'instance.restart', { id });
+      return okObject(result);
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 
-  // RCON command — connects directly to the Minecraft server's RCON port
+  app.post('/api/instances/:id/command', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const command = assertCommand((request.body as { command?: unknown } | undefined)?.command);
+      const result = await ipcCall(ipc, 'instance.command', { id, command });
+      return okObject(result);
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
   app.post('/api/instances/:id/rcon', async (request, reply) => {
     try {
-      const { id } = request.params as { id: string };
-      if (!validateId(id)) {
-        return reply.status(400).send({ error: 'Invalid instance ID.' });
-      }
-      const { command } = (request.body || {}) as { command?: string };
-      if (!command) {
-        return reply.status(400).send({ error: 'Missing command.' });
-      }
-
-      // Get server.properties to read RCON settings
-      const configResponse = await ipcCall(ipc, 'config.get', { instance_id: id });
-      const props = configResponse.result as Record<string, string> | undefined;
-
-      if (!props) {
-        return reply.status(500).send({ error: 'Failed to read server.properties.' });
-      }
-
-      const rconPort = parseInt(props['rcon.port'] || '', 10);
-      const rconPassword = props['rcon.password'] || '';
+      const id = routeId(request.params);
+      const command = assertCommand((request.body as { command?: unknown } | undefined)?.command);
+      const props = await ipcCall<Record<string, string>>(ipc, 'config.get', { instance_id: id });
+      const rconPort = Number.parseInt(props?.['rcon.port'] || '', 10);
+      const rconPassword = props?.['rcon.password'] || '';
 
       if (!rconPort || !rconPassword) {
-        return reply.status(400).send({
-          error: 'RCON is not enabled. Set enable-rcon=true, rcon.port, and rcon.password in server.properties.',
-        });
+        httpError(
+          400,
+          'RCON is not enabled. Set enable-rcon=true, rcon.port, and rcon.password in server.properties.',
+        );
       }
 
-      const rcon = new RconClient('localhost', rconPort);
-      const result = await rcon.execute(rconPassword, command);
+      const result = await new RconClient('localhost', rconPort).execute(rconPassword, command);
       return { result };
-    } catch (err: any) {
-      if (err.statusCode) return reply.status(err.statusCode).send({ error: err.message });
-      return reply.status(503).send({ error: `RCON error: ${err.message}` });
+    } catch (error) {
+      return sendRouteError(reply, error, 'RCON error');
+    }
+  });
+
+  app.get('/api/instances/:id/files', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const { path } = request.query as { path?: string };
+      const subpath = path ? assertSafeSubpath(path) : 'mods';
+      const files = await ipcCall(ipc, 'files.list', { instance_id: id, path: subpath });
+      return files ?? [];
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.delete('/api/instances/:id/files', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const { path } = request.query as { path?: string };
+      return await ipcCall(ipc, 'files.delete', {
+        instance_id: id,
+        path: assertSafeSubpath(path, 'file path'),
+      });
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.patch('/api/instances/:id/files', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const { oldPath, newPath } = (request.body || {}) as FileRenameBody;
+      return await ipcCall(ipc, 'files.rename', {
+        instance_id: id,
+        old_path: assertSafeSubpath(oldPath, 'paths'),
+        new_path: assertSafeSubpath(newPath, 'paths'),
+      });
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.post('/api/instances/:id/files', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const { path, data } = (request.body || {}) as FileWriteBody;
+      if (!data) {
+        httpError(400, 'Invalid path or missing data.');
+      }
+      const result = await ipcCall(ipc, 'files.write', {
+        instance_id: id,
+        path: assertSafeSubpath(path),
+        data,
+      });
+      return reply.status(201).send(result);
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.get('/api/instances/:id/mods', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      return await getMods(ipc, id);
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.post('/api/instances/:id/mods/scan', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const mods = await scanMods(ipc, id);
+      return { scanned: mods.length, mods };
+    } catch (error) {
+      return sendRouteError(reply, error);
     }
   });
 };
+
+function routeId(params: unknown): string {
+  return assertInstanceId((params as { id: string }).id);
+}
+
+function assertServerType(type: string | undefined): ServerType {
+  if (!type || !VALID_TYPES.has(type as ServerType)) {
+    httpError(400, `Invalid server type: ${type}. Must be one of: ${Array.from(VALID_TYPES).join(', ')}`);
+  }
+  return type as ServerType;
+}
+
+function assertServerName(name: string | undefined, missingMessage = 'Missing required fields: name, type, version'): string {
+  const value = assertText(name, missingMessage);
+  if (value.length > 64 || !SERVER_NAME_PATTERN.test(value)) {
+    httpError(400, 'Invalid server name. Use letters, numbers, spaces, hyphens, underscores.');
+  }
+  return value;
+}
+
+function assertText(value: string | undefined, missingMessage: string): string {
+  if (!value || value.trim().length === 0) {
+    httpError(400, missingMessage);
+  }
+  return value;
+}

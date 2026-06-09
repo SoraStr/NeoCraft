@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useInstanceStore } from '../../stores/instanceStore';
 import { sendRconCommand } from '../../lib/api';
-
 /* ── Types ── */
 
 interface RconPanelProps {

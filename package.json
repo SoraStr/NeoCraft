@@ -1,12 +1,15 @@
 {
   "name": "neocraft",
   "private": true,
-  "description": "Minecraft server control panel for macOS",
+  "description": "Cross-platform Minecraft server control panel",
   "scripts": {
-    "dev": "concurrently \"npm run dev:daemon\" \"npm run dev:server\" \"npm run dev:frontend\"",
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
     "dev:daemon": "cd daemon && cargo run",
     "dev:server": "cd server && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
+    "build:server": "cd server && npm run build",
+    "build:frontend": "cd frontend && npm run build",
     "build:daemon": "cd daemon && cargo build --release",
     "test": "npm run test:daemon && npm run test:server && npm run test:frontend",
     "test:daemon": "cd daemon && cargo test",

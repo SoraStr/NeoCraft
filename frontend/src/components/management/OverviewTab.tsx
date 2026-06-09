@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
 import type { ServerStatus } from '../../lib/types';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
@@ -16,6 +17,7 @@ interface JoinLeaveEntry {
 }
 
 export function OverviewTab({ client }: OverviewTabProps) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,75 +72,33 @@ export function OverviewTab({ client }: OverviewTabProps) {
     <div className="space-y-6 animate-fade-in">
       {/* Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div
-          className="rounded-xl p-4"
-          style={{ backgroundColor: '#f0fdf4', border: '1px solid #a7f3d0' }}
-        >
-          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">
-            Players
-          </p>
-          <p className="text-2xl font-bold mt-1" style={{ color: '#16a34a' }}>
-            {status.players}
-          </p>
+        <div className="rounded-xl p-4" style={{ backgroundColor: '#f0fdf4', border: '1px solid #a7f3d0' }}>
+          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">{t('management.overview.players')}</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: '#16a34a' }}>{status.players?.length ?? 0}</p>
         </div>
-        <div
-          className="rounded-xl p-4"
-          style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0' }}
-        >
-          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">
-            Version
-          </p>
-          <p className="text-2xl font-bold mt-1" style={{ color: '#059669' }}>
-            {status.version}
-          </p>
+        <div className="rounded-xl p-4" style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">{t('management.overview.version')}</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: '#059669' }}>{status.version?.name ?? 'Unknown'}</p>
         </div>
-        <div
-          className="rounded-xl p-4"
-          style={{
-            backgroundColor: running ? '#f0fdf4' : '#f0eeea',
-            border: running ? '1px solid #a7f3d0' : '1px solid #e8e6e1',
-          }}
-        >
-          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">
-            Status
-          </p>
-          <p
-            className="text-2xl font-bold mt-1"
-            style={{ color: running ? '#16a34a' : '#a09c94' }}
-          >
-            {running ? 'Running' : 'Stopped'}
-          </p>
+        <div className="rounded-xl p-4" style={{ backgroundColor: running ? '#f0fdf4' : '#f0eeea', border: running ? '1px solid #a7f3d0' : '1px solid #e8e6e1' }}>
+          <p className="text-xs font-medium text-app-text-muted uppercase tracking-wider">{t('management.overview.status')}</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: running ? '#16a34a' : '#a09c94' }}>{running ? t('management.overview.running') : t('management.overview.stopped')}</p>
         </div>
       </div>
 
       {/* Notification Events */}
       <div>
-        <h3 className="text-sm font-semibold text-app-text mb-3">
-          Player Activity
-          <span className="text-app-text-muted font-normal ml-2">(live)</span>
-        </h3>
+        <h3 className="text-sm font-semibold text-app-text mb-3">{t('management.status.playerActivity')} <span className="text-app-text-muted font-normal ml-2">({t('management.status.live')})</span></h3>
         {events.length === 0 ? (
-          <p className="text-sm text-app-text-muted py-4 text-center bg-app-surface border border-app-border rounded-xl">
-            Waiting for player events...
-          </p>
+          <p className="text-sm text-app-text-muted py-4 text-center bg-app-surface border border-app-border rounded-xl">{t('management.status.waitingForEvents')}</p>
         ) : (
           <div className="rounded-xl bg-app-surface border border-app-border divide-y divide-app-border-light max-h-64 overflow-y-auto">
             {events.map((ev, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                <span
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    ev.type === 'joined' ? 'bg-app-green' : 'bg-app-red'
-                  }`}
-                />
-                <span className="text-sm font-medium text-app-text">
-                  {ev.player}
-                </span>
-                <span className="text-xs text-app-text-muted">
-                  {ev.type === 'joined' ? 'joined' : 'left'}
-                </span>
-                <span className="text-xs text-app-text-muted ml-auto tabular-nums">
-                  {new Date(ev.time).toLocaleTimeString()}
-                </span>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.type === 'joined' ? 'bg-app-green' : 'bg-app-red'}`} />
+                <span className="text-sm font-medium text-app-text">{ev.player}</span>
+                <span className="text-xs text-app-text-muted">{ev.type === 'joined' ? t('management.overview.joined') : t('management.overview.left')}</span>
+                <span className="text-xs text-app-text-muted ml-auto tabular-nums">{new Date(ev.time).toLocaleTimeString()}</span>
               </div>
             ))}
           </div>

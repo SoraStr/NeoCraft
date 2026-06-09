@@ -47,6 +47,8 @@
   --color-badge-spigot-bg: #dbeafe;
   --color-badge-fabric: #8b5cf6;
   --color-badge-fabric-bg: #ede9fe;
+  --color-badge-forge: #ea580c;
+  --color-badge-forge-bg: #fff7ed;
   --color-badge-custom: #6b7280;
   --color-badge-custom-bg: #f3f4f6;
   /* Shadows */
@@ -79,15 +81,15 @@
   --color-app-console-text: #cdd6f4;
   --color-app-green: #4ade80;
   --color-app-green-bg: rgba(34,197,94,0.12);
-  --color-app-amber: #fbbf24;
+  --color-app-amber: #fef08a;
   --color-app-amber-bg: rgba(245,158,11,0.12);
-  --color-app-red: #f87171;
+  --color-app-red: #ef4444;
   --color-app-red-bg: rgba(239,68,68,0.12);
   --color-app-blue: #60a5fa;
   --color-app-blue-bg: rgba(59,130,246,0.12);
   --color-app-purple: #a78bfa;
   --color-app-purple-bg: rgba(139,92,246,0.12);
-  --color-app-gold: #facc15;
+  --color-app-gold: #fef08a;
   --color-app-gold-bg: rgba(234,179,8,0.12);
   --color-badge-paper: #34d399;
   --color-badge-paper-bg: rgba(16,185,129,0.15);
@@ -97,6 +99,8 @@
   --color-badge-spigot-bg: rgba(59,130,246,0.15);
   --color-badge-fabric: #a78bfa;
   --color-badge-fabric-bg: rgba(139,92,246,0.15);
+  --color-badge-forge: #fb923c;
+  --color-badge-forge-bg: rgba(234,88,12,0.15);
   --color-badge-custom: #9ca3af;
   --color-badge-custom-bg: rgba(107,114,128,0.15);
   --shadow-app-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
@@ -226,18 +230,18 @@ input, textarea, select, .no-transition {
   --color-app-console-bg: #1A1A1A;
   --color-app-console-text: #00FF00;
   --color-app-green: #5B8731;
-  --color-app-green-bg: rgba(91, 135, 49, 0.2);
-  --color-app-amber: #FED83D;
-  --color-app-amber-bg: rgba(254, 216, 61, 0.15);
-  --color-app-red: #B02E26;
-  --color-app-red-bg: rgba(176, 46, 38, 0.15);
+  --color-app-green-bg: #1C2E10;
+  --color-app-amber: #fef08a;
+  --color-app-amber-bg: #4B3A0A;
+  --color-app-red: #ef4444;
+  --color-app-red-bg: #4B1E1E;
   --color-app-blue: #2CBCB5;
-  --color-app-blue-bg: rgba(44, 188, 181, 0.15);
+  --color-app-blue-bg: #103030;
   --color-app-purple: #C74EBD;
-  --color-app-purple-bg: rgba(199, 78, 189, 0.15);
-  --color-app-gold: #FED83D;
-  --color-app-gold-bg: rgba(254, 216, 61, 0.15);
-  
+  --color-app-purple-bg: #301A30;
+  --color-app-gold: #fef08a;
+  --color-app-gold-bg: #4B3A0A;
+
   /* Server type badges */
   --color-badge-paper: #5B8731;
   --color-badge-paper-bg: rgba(91, 135, 49, 0.2);
@@ -247,6 +251,8 @@ input, textarea, select, .no-transition {
   --color-badge-spigot-bg: rgba(44, 188, 181, 0.2);
   --color-badge-fabric: #C74EBD;
   --color-badge-fabric-bg: rgba(199, 78, 189, 0.2);
+  --color-badge-forge: #C84E0A;
+  --color-badge-forge-bg: rgba(200, 78, 10, 0.2);
   --color-badge-custom: #866043;
   --color-badge-custom-bg: rgba(134, 96, 67, 0.2);
   
@@ -344,6 +350,8 @@ input, textarea, select, .no-transition {
   --color-badge-spigot-bg: rgba(44, 188, 181, 0.15);
   --color-badge-fabric: #C74EBD;
   --color-badge-fabric-bg: rgba(199, 78, 189, 0.15);
+  --color-badge-forge: #C84E0A;
+  --color-badge-forge-bg: rgba(200, 78, 10, 0.15);
   --color-badge-custom: #866043;
   --color-badge-custom-bg: rgba(134, 96, 67, 0.15);
   

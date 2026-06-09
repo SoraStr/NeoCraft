@@ -6,7 +6,7 @@ interface WebSocketLike {
 
 interface IpcEvent {
   event: string;
-  data: Record<string, unknown>;
+  data: unknown;
 }
 
 export class WebSocketHub {

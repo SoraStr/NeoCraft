@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
 import type { TypedRule } from '../../lib/types';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { EmptyState } from '../ui/EmptyState';
 
-interface GamerulesTabProps {
-  client: SmpClient;
-}
+interface GamerulesTabProps { client: SmpClient; }
 
 export function GamerulesTab({ client }: GamerulesTabProps) {
+  const { t } = useTranslation();
   const [rules, setRules] = useState<TypedRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function GamerulesTab({ client }: GamerulesTabProps) {
 
   const fetchRules = async () => {
     try {
-      const result = (await client.call('gamerules/list')) as TypedRule[];
+      const result = (await client.call('gamerules')) as TypedRule[];
       setRules(Array.isArray(result) ? result : []);
       setError(null);
     } catch (err: any) {
@@ -37,7 +37,7 @@ export function GamerulesTab({ client }: GamerulesTabProps) {
     setActionError(null);
     setUpdating(rule.key);
     try {
-      await client.call('gamerules/set', [{ key: rule.key, value: newValue }]);
+      await client.call('gamerules/update', [{ key: rule.key, value: newValue }]);
       setRules((prev) =>
         prev.map((r) => (r.key === rule.key ? { ...r, value: newValue } : r)),
       );
@@ -54,20 +54,10 @@ export function GamerulesTab({ client }: GamerulesTabProps) {
 
     if (rule.type === 'boolean' || typeof rule.value === 'boolean') {
       return (
-        <button
-          onClick={() => handleUpdate(rule, !rule.value)}
-          disabled={disabled}
-          className={`relative w-10 h-5 rounded-full transition-colors ${
-            rule.value ? 'bg-app-accent' : 'bg-app-border-hover'
-          } ${disabled ? 'opacity-50' : ''}`}
-          role="switch"
-          aria-checked={!!rule.value}
-        >
-          <span
-            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-              rule.value ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
+        <button onClick={() => handleUpdate(rule, !rule.value)} disabled={disabled}
+          className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${rule.value ? 'bg-app-accent' : 'bg-app-border-hover'} ${disabled ? 'opacity-50' : ''}`}
+          role="switch" aria-checked={!!rule.value}>
+          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${rule.value ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       );
     }
@@ -120,35 +110,16 @@ export function GamerulesTab({ client }: GamerulesTabProps) {
   return (
     <div className="animate-fade-in space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-app-text">
-          Gamerules ({rules.length})
-        </h3>
-        <button
-          onClick={fetchRules}
-          className="text-xs font-medium text-app-text-muted hover:text-app-accent transition-colors"
-        >
-          Refresh
-        </button>
+        <h3 className="text-sm font-semibold text-app-text">{t('management.tabs.gamerules')} ({rules.length})</h3>
+        <button onClick={fetchRules} className="text-xs font-medium text-app-text-muted hover:text-app-accent transition-colors">{t('management.buttons.refresh')}</button>
       </div>
 
-      {actionError && (
-        <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
-      )}
+      {actionError && <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />}
 
-      {/* Search */}
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search gamerules..."
-        className="w-full max-w-xs px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors"
-      />
+      <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('management.fields.searchPlaceholder')} className="w-full max-w-xs px-3 py-2 rounded-lg bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors" />
 
       {filteredRules.length === 0 ? (
-        <EmptyState
-          title={search ? 'No matching gamerules' : 'No gamerules found'}
-          description={search ? 'Try a different search term.' : 'Gamerules will appear here.'}
-        />
+        <EmptyState title={t('management.status.noGamerules')} description="" />
       ) : (
         <div className="rounded-xl bg-app-surface border border-app-border divide-y divide-app-border-light max-h-[60vh] overflow-y-auto">
           {filteredRules.map((rule) => (

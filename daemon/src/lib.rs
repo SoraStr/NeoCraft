@@ -1,7 +1,16 @@
 pub mod protocol;
+pub mod transport;
 pub mod ipc;
 pub mod instance;
+pub mod instance_files;
 pub mod downloader;
 pub mod monitor;
 pub mod logpipe;
 pub mod files;
+pub mod detect;
+pub mod handler;
+pub mod java_args;
+pub mod management;
+pub mod paths;
+pub mod util;
+pub mod auth;

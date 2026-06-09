@@ -1,4 +1,4 @@
-export type ServerType = 'vanilla' | 'paper' | 'spigot' | 'fabric';
+export type ServerType = 'vanilla' | 'paper' | 'spigot' | 'fabric' | 'forge' | 'custom';
 
 export type InstanceState = 'stopped' | 'starting' | 'running' | 'stopping' | 'crashed';
 
@@ -10,16 +10,23 @@ export interface Instance {
   port: number;
   state: InstanceState;
   java_args: string;
+  java_path: string;
   created_at: string;
   download_url: string;
   management_port: number;
   management_token: string;
+  management_tls_enabled: boolean;
 }
 
 export interface ServerVersion {
   id: string;
   type: ServerType;
   downloadUrl?: string;
+}
+
+export interface FabricVersionMeta {
+  version: string;
+  stable: boolean;
 }
 
 export interface LogEntry {
@@ -41,6 +48,7 @@ export interface CreateInstanceInput {
   version: string;
   port?: number;
   downloadUrl?: string;
+  javaPath?: string;
 }
 
 export interface IpcEvent {
@@ -74,9 +82,9 @@ export interface OperatorDto {
 }
 
 export interface ServerStatus {
-  players: number;
+  players: PlayerDto[];
   started: boolean;
-  version: string;
+  version: { name: string; protocol: number };
 }
 
 export interface TypedRule {
@@ -91,4 +99,45 @@ export interface ManagementConfig {
   smpToken?: string;
   rconPort?: number;
   rconPassword?: string;
+}
+
+export type PluginMarketProvider = 'spiget' | 'modrinth' | 'hangar';
+
+export interface PluginMarketResult {
+  provider: PluginMarketProvider;
+  id: string;
+  name: string;
+  description: string;
+  iconUrl?: string;
+  author?: string;
+  downloads?: number;
+  likes?: number;
+  rating?: number;
+  updatedAt?: string;
+  latestVersion?: string;
+  supportedVersions: string[];
+  supportedPlatforms: string[];
+  pageUrl: string;
+  external?: boolean;
+}
+
+export interface PluginMarketDetails extends PluginMarketResult {
+  body?: string;
+  links: Array<{ label: string; url: string }>;
+  license?: string;
+  categories: string[];
+}
+
+export interface PluginMarketVersion {
+  provider: PluginMarketProvider;
+  id: string;
+  name: string;
+  downloads?: number;
+  releasedAt?: string;
+  supportedVersions: string[];
+  supportedPlatforms: string[];
+  fileName?: string;
+  fileSize?: number;
+  downloadUrl?: string;
+  channel?: string;
 }

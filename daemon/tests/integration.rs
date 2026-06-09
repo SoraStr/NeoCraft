@@ -1,10 +1,10 @@
 use neocraft_daemon::ipc::{IpcServer, RequestHandler};
 use neocraft_daemon::instance::{InstanceManager, ServerType};
-use neocraft_daemon::protocol::{Request, Response, Event, Method, Error as ProtoError};
+use neocraft_daemon::protocol::{Request, Response, Method, Error as ProtoError};
+use neocraft_daemon::transport;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio::net::UnixStream;
 use tokio::io::{AsyncWriteExt, BufReader, AsyncBufReadExt};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -16,7 +16,6 @@ fn temp_socket_path() -> PathBuf {
 
 struct DaemonHandler {
     instance_manager: InstanceManager,
-    event_tx: broadcast::Sender<Event>,
 }
 
 #[async_trait]
@@ -167,7 +166,7 @@ async fn test_full_ipc_lifecycle() {
 
     // Create an instance
     let instance = manager
-        .create("IPC Test".into(), ServerType::Paper, "1.21.5".into(), 25570, "".into())
+        .create("IPC Test".into(), ServerType::Paper, "1.21.5".into(), 25570, "".into(), None)
         .await
         .unwrap();
     let instance_id = instance.id.clone();
@@ -175,11 +174,10 @@ async fn test_full_ipc_lifecycle() {
     // Set up handler
     let handler = Arc::new(DaemonHandler {
         instance_manager: manager,
-        event_tx: event_tx.clone(),
     });
 
     // Start IPC server
-    let server = IpcServer::bind(socket_path.clone()).await.unwrap();
+    let server = IpcServer::bind(socket_path.to_string_lossy().to_string()).await.unwrap();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     let server_handle = tokio::spawn(async move {
         server.run(handler, shutdown_rx).await.unwrap();
@@ -188,7 +186,7 @@ async fn test_full_ipc_lifecycle() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Connect client
-    let mut stream = UnixStream::connect(&socket_path).await.unwrap();
+    let mut stream = transport::connect(&socket_path.to_string_lossy()).await.unwrap();
 
     // Test: Get config
     let req = Request {

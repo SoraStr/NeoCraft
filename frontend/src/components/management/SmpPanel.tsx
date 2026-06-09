@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { SmpClient } from '../../lib/smp-client';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useSmpConnection } from '../../hooks/useSmpConnection';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { OverviewTab } from './OverviewTab';
@@ -17,72 +18,19 @@ interface SmpPanelProps {
   instanceId: string;
   managementPort: number;
   managementToken: string;
+  managementTlsEnabled: boolean;
 }
 
-interface TabDef {
-  key: string;
-  label: string;
-  labelJa: string;
-}
+const TAB_KEYS = ['overview','players','chat','allowlist','bans','ipBans','operators','settings','gamerules','more'];
 
-const TABS: TabDef[] = [
-  { key: 'overview',   label: 'Overview',     labelJa: '概要' },
-  { key: 'players',    label: 'Players',      labelJa: 'プレイヤー' },
-  { key: 'chat',       label: 'Chat',          labelJa: 'チャット' },
-  { key: 'allowlist',  label: 'Allowlist',     labelJa: 'ホワイトリスト' },
-  { key: 'bans',       label: 'Bans',          labelJa: 'BAN' },
-  { key: 'ipbans',     label: 'IP Bans',       labelJa: 'IP BAN' },
-  { key: 'operators',  label: 'Operators',     labelJa: 'OP' },
-  { key: 'settings',   label: 'Settings',      labelJa: '設定' },
-  { key: 'gamerules',  label: 'Gamerules',     labelJa: 'ゲームルール' },
-  { key: 'more',       label: 'More',          labelJa: 'その他' },
-];
-
-export default function SmpPanel({ managementPort, managementToken }: SmpPanelProps) {
+export default function SmpPanel({ managementPort, managementToken, managementTlsEnabled }: SmpPanelProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('overview');
-  const [client, setClient] = useState<SmpClient | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<SmpClient | null>(null);
-
-  const connect = useCallback(async () => {
-    if (!managementPort || !managementToken) {
-      setError('SMP management port or token not configured.');
-      setConnecting(false);
-      return;
-    }
-
-    setConnecting(true);
-    setError(null);
-
-    const url = `ws://localhost:${managementPort}/`;
-    const c = new SmpClient(url, managementToken);
-    clientRef.current = c;
-    setClient(c);
-
-    try {
-      await c.connect();
-      setConnected(true);
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect to SMP management server.');
-    } finally {
-      setConnecting(false);
-    }
-  }, [managementPort, managementToken]);
-
-  useEffect(() => {
-    connect();
-    return () => {
-      clientRef.current?.close();
-      clientRef.current = null;
-    };
-  }, [connect]);
-
-  const handleRetry = () => {
-    clientRef.current?.close();
-    connect();
-  };
+  const { client, connected, connecting, error, retry, url } = useSmpConnection({
+    managementPort,
+    managementToken,
+    managementTlsEnabled,
+  });
 
   if (connecting) {
     return (
@@ -95,10 +43,10 @@ export default function SmpPanel({ managementPort, managementToken }: SmpPanelPr
   if (error) {
     return (
       <div className="rounded-xl bg-app-surface border border-app-border p-6">
-        <ErrorBanner message={error} onRetry={handleRetry} />
+        <ErrorBanner message={error} onRetry={retry} />
         {!connected && managementPort > 0 && (
           <p className="mt-4 text-xs text-app-text-muted text-center">
-            SMP server at ws://localhost:{managementPort}/
+            SMP server at {url}
           </p>
         )}
       </div>
@@ -108,7 +56,7 @@ export default function SmpPanel({ managementPort, managementToken }: SmpPanelPr
   if (!connected || !client) {
     return (
       <div className="rounded-xl bg-app-surface border border-app-border p-6">
-        <ErrorBanner message="Not connected to SMP management server." onRetry={handleRetry} />
+        <ErrorBanner message={t('management.status.notConnected')} onRetry={retry} />
       </div>
     );
   }
@@ -120,7 +68,7 @@ export default function SmpPanel({ managementPort, managementToken }: SmpPanelPr
       case 'chat':       return <ChatTab client={client} />;
       case 'allowlist':  return <AllowlistTab client={client} />;
       case 'bans':       return <BanTab client={client} />;
-      case 'ipbans':     return <IpBanTab client={client} />;
+      case 'ipBans':     return <IpBanTab client={client} />;
       case 'operators':  return <OperatorsTab client={client} />;
       case 'settings':   return <SettingsTab client={client} />;
       case 'gamerules':  return <GamerulesTab client={client} />;
@@ -134,18 +82,17 @@ export default function SmpPanel({ managementPort, managementToken }: SmpPanelPr
       {/* Tab Bar */}
       <div className="flex-shrink-0 border-b border-app-border overflow-x-auto">
         <div className="flex gap-0.5 px-1">
-          {TABS.map((tab) => (
+          {TAB_KEYS.map((key) => (
             <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              key={key}
+              onClick={() => setActiveTab(key)}
               className={`px-3.5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                activeTab === tab.key
+                activeTab === key
                   ? 'border-app-accent text-app-accent'
                   : 'border-transparent text-app-text-muted hover:text-app-text-secondary hover:border-app-border-hover'
               }`}
             >
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.labelJa}</span>
+              {t(`management.tabs.${key}`)}
             </button>
           ))}
         </div>

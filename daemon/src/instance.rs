@@ -2,14 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, oneshot, Mutex, RwLock};
 use crate::downloader::CacheInfo;
+use crate::detect::detect_server;
+use crate::files::copy_dir_all;
+use crate::java_args::build_java_command;
 use crate::logpipe::LogPipe;
+use crate::management;
 use crate::protocol::{Event, InstanceState};
 
 /// Supported Minecraft server types.
@@ -20,6 +24,8 @@ pub enum ServerType {
     Paper,
     Spigot,
     Fabric,
+    Forge,
+    Custom,
 }
 
 /// Represents a managed Minecraft server instance.
@@ -35,12 +41,23 @@ pub struct Instance {
     pub jar_path: PathBuf,
     pub state: InstanceState,
     pub java_args: String,
+    /// Absolute path to the Java binary (default: "java" — uses system PATH).
+    #[serde(default = "default_java_path")]
+    pub java_path: String,
     pub created_at: String, // ISO 8601
     pub download_url: String,
     #[serde(default)]
     pub management_port: u16,
     #[serde(default)]
     pub management_token: String,
+    #[serde(default)]
+    pub management_keystore_password: String,
+    #[serde(default)]
+    pub management_tls_enabled: bool,
+}
+
+fn default_java_path() -> String {
+    "java".into()
 }
 
 /// Manages the lifecycle of Minecraft server instances.
@@ -49,8 +66,8 @@ pub struct InstanceManager {
     instances_dir: PathBuf,
     instances: Arc<RwLock<HashMap<String, Instance>>>,
     event_tx: broadcast::Sender<Event>,
-    children: Mutex<HashMap<String, tokio::process::Child>>,
-    stdins: Mutex<HashMap<String, tokio::process::ChildStdin>>,
+    process_killers: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+    stdins: Arc<Mutex<HashMap<String, tokio::process::ChildStdin>>>,
 }
 
 impl InstanceManager {
@@ -103,8 +120,8 @@ impl InstanceManager {
             instances_dir,
             instances,
             event_tx,
-            children: Mutex::new(HashMap::new()),
-            stdins: Mutex::new(HashMap::new()),
+            process_killers: Arc::new(Mutex::new(HashMap::new())),
+            stdins: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -119,16 +136,11 @@ impl InstanceManager {
         version: String,
         port: u16,
         download_url: String,
+        java_path: Option<String>,
     ) -> Result<Instance, InstanceError> {
-        // Reject duplicate ports
-        {
-            let map = self.instances.read().await;
-            for inst in map.values() {
-                if inst.port == port {
-                    return Err(InstanceError::PortInUse(port));
-                }
-            }
-        }
+        let management_port = management::management_port(&version, port)
+            .map_err(|e| InstanceError::PortUnavailable(e.to_string()))?;
+        self.ensure_ports_available(port, management_port).await?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let work_dir = self.instances_dir.join(&id);
@@ -148,40 +160,29 @@ impl InstanceManager {
             crate::files::default_server_properties(port, &name),
         ).await?;
 
-        // Auto-configure SMP (>= 1.21.9) or RCON (< 1.21.9) in server.properties
-        let (management_port, management_token) = if version_at_least(&version, 1, 21, 9) {
-            let mp = port + 100;
-            let token = random_alphanumeric(40);
-            let smp_config = format!(
-                "management-server-enabled=true\n\
-                 management-server-port={}\n\
-                 management-server-secret={}\n\
-                 management-server-allowed-origins=http://localhost:5173\n",
-                mp, token
-            );
-            let existing = tokio::fs::read_to_string(work_dir.join("server.properties")).await?;
-            tokio::fs::write(work_dir.join("server.properties"), existing + &smp_config).await?;
-            (mp, token)
-        } else {
-            let mp = port + 10;
-            let token = random_hex(32);
-            let rcon_config = format!(
-                "enable-rcon=true\nrcon.port={}\nrcon.password={}\n",
-                mp, token
-            );
-            let existing = tokio::fs::read_to_string(work_dir.join("server.properties")).await?;
-            tokio::fs::write(work_dir.join("server.properties"), existing + &rcon_config).await?;
-            (mp, token)
-        };
+        let management_settings = management::configure(
+            &work_dir.join("server.properties"),
+            &work_dir,
+            &version,
+            port,
+            &id,
+        )
+        .await
+        .map_err(|e| InstanceError::PortUnavailable(e.to_string()))?;
 
         let jar_path = work_dir.join("server.jar");
 
         // Download the server JAR if a URL is provided (before persisting instance)
         if !download_url.is_empty() {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            download_url.hash(&mut h);
+            let url_hash = Some(format!("{:08x}", h.finish()));
             let cache = CacheInfo {
                 cache_dir: self.data_dir.join("cache"),
                 server_type: format!("{:?}", server_type).to_lowercase(),
                 version: version.clone(),
+                url_hash,
             };
             crate::downloader::download_jar(
                 &download_url,
@@ -204,10 +205,129 @@ impl InstanceManager {
             jar_path,
             state: InstanceState::Stopped,
             java_args: "-Xmx2G -Xms1G".into(),
+            java_path: java_path.unwrap_or_else(|| "java".into()),
             created_at: chrono::Utc::now().to_rfc3339(),
             download_url,
-            management_port,
-            management_token,
+            management_port: management_settings.port,
+            management_token: management_settings.token,
+            management_keystore_password: management_settings.keystore_password,
+            management_tls_enabled: management_settings.tls_enabled,
+        };
+
+        // Persist instance state to disk
+        let json = serde_json::to_string_pretty(&instance)?;
+        tokio::fs::write(instance.work_dir.join("instance.json"), json).await?;
+
+        self.instances.write().await.insert(instance.id.clone(), instance.clone());
+        Ok(instance)
+    }
+
+    /// Import a Minecraft server from an existing directory (modpack, pre-configured server).
+    ///
+    /// Copies the entire source directory into `data_dir/instances/<id>/`, then
+    /// detects server type/version via three strategies:
+    /// 1. `install.properties` inside JAR → Fabric type
+    /// 2. `version.json` inside JAR → Custom type
+    /// 3. `versions/minecraft.txt` (+ `versions/forge.txt`) inside JAR → Forge/Custom
+    ///
+    /// Writes `eula.txt` and `server.properties` only if missing, then persists `instance.json`.
+    pub async fn import(
+        &self,
+        name: String,
+        source_dir: PathBuf,
+        port: u16,
+        java_args: Option<String>,
+        java_path: Option<String>,
+    ) -> Result<Instance, InstanceError> {
+        // Validate the source directory exists
+        if !source_dir.is_dir() {
+            return Err(InstanceError::JarRead(format!(
+                "Source directory not found or not a directory: {}",
+                source_dir.display()
+            )));
+        }
+
+        // Detect server type, version, and JAR in the source directory
+        let detected = detect_server(&source_dir)?;
+
+        // Extract just the Minecraft version number for version comparison.
+        // The full version string may be compound (e.g. "1.21.5 Forge 52.0.1").
+        let mc_version = detected.version
+            .split_whitespace()
+            .next()
+            .unwrap_or(&detected.version);
+
+        let management_port = management::management_port(mc_version, port)
+            .map_err(|e| InstanceError::PortUnavailable(e.to_string()))?;
+        self.ensure_ports_available(port, management_port).await?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let work_dir = self.instances_dir.join(&id);
+
+        // Create the instance directory
+        tokio::fs::create_dir_all(&work_dir).await?;
+
+        // Copy entire source directory contents into the work directory.
+        // Use recursive copy — this brings in mods/, config/, world/, etc.
+        copy_dir_all(&source_dir, &work_dir).await.map_err(|e| {
+            InstanceError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "Failed to copy directory from {} to {}: {}",
+                    source_dir.display(),
+                    work_dir.display(),
+                    e,
+                ),
+            ))
+        })?;
+
+        let jar_path = work_dir.join(&detected.jar_filename);
+
+        // Write eula.txt (only if it doesn't already exist from the copied directory)
+        let eula_path = work_dir.join("eula.txt");
+        if !eula_path.exists() {
+            tokio::fs::write(&eula_path, crate::files::eula_accepted()).await?;
+        }
+
+        // Write server.properties template (only if it doesn't already exist)
+        let props_path = work_dir.join("server.properties");
+        if !props_path.exists() {
+            tokio::fs::write(
+                &props_path,
+                crate::files::default_server_properties(port, &name),
+            )
+            .await?;
+        }
+
+        let management_settings = management::configure(
+            &props_path,
+            &work_dir,
+            mc_version,
+            port,
+            &id,
+        )
+        .await
+        .map_err(|e| InstanceError::PortUnavailable(e.to_string()))?;
+
+        let java_args_val = java_args.unwrap_or_else(|| "-Xmx2G -Xms1G".into());
+
+        let instance = Instance {
+            id,
+            name,
+            server_type: detected.server_type,
+            version: detected.version,
+            port,
+            work_dir,
+            jar_path,
+            state: InstanceState::Stopped,
+            java_args: java_args_val,
+            java_path: java_path.unwrap_or_else(|| "java".into()),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            download_url: String::new(),
+            management_port: management_settings.port,
+            management_token: management_settings.token,
+            management_keystore_password: management_settings.keystore_password,
+            management_tls_enabled: management_settings.tls_enabled,
         };
 
         // Persist instance state to disk
@@ -228,6 +348,38 @@ impl InstanceManager {
         self.instances.read().await.values().cloned().collect()
     }
 
+    async fn ensure_ports_available(
+        &self,
+        server_port: u16,
+        management_port: u16,
+    ) -> Result<(), InstanceError> {
+        let map = self.instances.read().await;
+        for instance in map.values() {
+            if instance.port == server_port {
+                return Err(InstanceError::PortInUse(server_port));
+            }
+            if instance.port == management_port {
+                return Err(InstanceError::PortUnavailable(format!(
+                    "Management port {management_port} conflicts with server port used by {}",
+                    instance.name
+                )));
+            }
+            if instance.management_port != 0 && instance.management_port == server_port {
+                return Err(InstanceError::PortUnavailable(format!(
+                    "Server port {server_port} conflicts with management port used by {}",
+                    instance.name
+                )));
+            }
+            if instance.management_port != 0 && instance.management_port == management_port {
+                return Err(InstanceError::PortUnavailable(format!(
+                    "Management port {management_port} is already used by {}",
+                    instance.name
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Directly update an instance's state (for testing).
     pub async fn force_state(&self, id: &str, state: InstanceState) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
@@ -240,16 +392,20 @@ impl InstanceManager {
         }
     }
 
-    /// Update instance-level config fields (java_args) and persist to disk.
+    /// Update instance-level config fields (java_args, java_path) and persist to disk.
     pub async fn update_config(
         &self,
         id: &str,
         java_args: Option<String>,
+        java_path: Option<String>,
     ) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
         let inst = map.get_mut(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
         if let Some(ref j) = java_args {
             inst.java_args = j.clone();
+        }
+        if let Some(ref p) = java_path {
+            inst.java_path = p.clone();
         }
         // Persist updated instance to disk
         let json = serde_json::to_string_pretty(&*inst)?;
@@ -280,49 +436,54 @@ impl InstanceManager {
     }
 
     /// Start an instance. Ensures EULA is accepted before spawning the process.
+    ///
+    /// Acquires a write lock to atomically check-and-transition state, preventing
+    /// concurrent start requests from double-spawning the process. The lock is
+    /// dropped before the slow EULA check and process spawn.
     pub async fn start(&self, id: &str) -> Result<(), InstanceError> {
-        let (jar_path, work_dir, server_type, java_args) = {
-            let map = self.instances.read().await;
-            let inst = map.get(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
+        let (jar_path, work_dir, server_type, java_args, java_path) = {
+            let mut map = self.instances.write().await;
+            let inst = map.get_mut(id).ok_or_else(|| InstanceError::NotFound(id.into()))?;
             if inst.state != InstanceState::Stopped && inst.state != InstanceState::Crashed {
                 return Err(InstanceError::NotStopped(id.into()));
             }
-            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone())
+            // Atomically transition to Starting under the write lock
+            inst.state = InstanceState::Starting;
+            let _ = self.event_tx.send(Event::InstanceStateChange {
+                instance_id: id.into(),
+                state: InstanceState::Starting,
+            });
+            (inst.jar_path.clone(), inst.work_dir.clone(), inst.server_type.clone(), inst.java_args.clone(), inst.java_path.clone())
         };
-
-        // Emit Starting
-        {
-            let mut map = self.instances.write().await;
-            if let Some(inst) = map.get_mut(id) {
-                inst.state = InstanceState::Starting;
-            }
-        }
-        let _ = self.event_tx.send(Event::InstanceStateChange {
-            instance_id: id.into(),
-            state: InstanceState::Starting,
-        });
 
         // Ensure EULA is accepted BEFORE spawning the process
         let eula_path = work_dir.join("eula.txt");
         if eula_path.exists() {
             let content = tokio::fs::read_to_string(&eula_path).await.unwrap_or_default();
             if content.contains("eula=false") {
-                tokio::fs::write(&eula_path, content.replace("eula=false", "eula=true"))
-                    .await
-                    .map_err(|e| InstanceError::Io(e))?;
+                if let Err(e) = tokio::fs::write(&eula_path, content.replace("eula=false", "eula=true")).await {
+                    self.transition_state(id, InstanceState::Crashed).await;
+                    return Err(InstanceError::Io(e));
+                }
             }
         } else {
-            // EULA file doesn't exist — create it with eula=true
-            tokio::fs::write(&eula_path, crate::files::eula_accepted())
-                .await
-                .map_err(|e| InstanceError::Io(e))?;
+            if let Err(e) = tokio::fs::write(&eula_path, crate::files::eula_accepted()).await {
+                self.transition_state(id, InstanceState::Crashed).await;
+                return Err(InstanceError::Io(e));
+            }
         }
 
         // Build and run the command
-        let (java_bin, java_args_vec) = build_java_command(&jar_path, &server_type, &java_args);
+        let (java_bin, java_args_vec) = build_java_command(&java_path, &jar_path, &server_type, &java_args);
         let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
 
-        self.start_process(id, &java_bin, &args_refs).await
+        match self.start_process(id, &java_bin, &args_refs).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.transition_state(id, InstanceState::Crashed).await;
+                Err(error)
+            }
+        }
     }
 
     /// Low-level process spawn with error capture.
@@ -350,33 +511,64 @@ impl InstanceManager {
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
 
-        // Emit Running
-        {
-            let mut map = self.instances.write().await;
-            if let Some(inst) = map.get_mut(id) {
-                inst.state = InstanceState::Running;
-            }
-        }
-        let _ = self.event_tx.send(Event::InstanceStateChange {
-            instance_id: id.into(),
-            state: InstanceState::Running,
-        });
+        self.transition_state(id, InstanceState::Running).await;
 
         // Take stdin out and store separately for send_command().
-        // Store child (minus stdin) for stop() to wait on.
         let stdin = child.stdin.take();
         if let Some(s) = stdin {
             self.stdins.lock().await.insert(id.to_string(), s);
         }
-        self.children.lock().await.insert(id.to_string(), child);
 
         // Pipe stdout+stderr merged — avoids duplicate lines common with Java process output
         let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
         tokio::spawn(async move { log_pipe.pipe_both(stdout, stderr).await; });
 
-        // Crash detection: stop() is the sole owner of process lifecycle.
-        // If the process exits without stop() being called, the next state
-        // query (list/get) will reflect the actual state from the OS.
+        let (kill_tx, kill_rx) = oneshot::channel::<()>();
+        self.process_killers.lock().await.insert(id.to_string(), kill_tx);
+
+        // Background exit monitor owns the child so it can detect natural exits,
+        // while stop() can still request a force-kill through `process_killers`.
+        {
+            let instances = Arc::clone(&self.instances);
+            let process_killers = Arc::clone(&self.process_killers);
+            let stdins = Arc::clone(&self.stdins);
+            let event_tx = self.event_tx.clone();
+            let id_str = id.to_string();
+            tokio::spawn(async move {
+                let exit_state = tokio::select! {
+                    status = child.wait() => match status {
+                        Ok(exit) if exit.success() => InstanceState::Stopped,
+                        _ => InstanceState::Crashed,
+                    },
+                    _ = kill_rx => {
+                        match child.kill().await {
+                            Ok(()) => {
+                                let _ = child.wait().await;
+                                InstanceState::Stopped
+                            }
+                            Err(_) => InstanceState::Crashed,
+                        }
+                    }
+                };
+
+                process_killers.lock().await.remove(&id_str);
+                stdins.lock().await.remove(&id_str);
+
+                let mut map = instances.write().await;
+                if let Some(inst) = map.get_mut(&id_str) {
+                    if inst.state == InstanceState::Running
+                        || inst.state == InstanceState::Starting
+                        || inst.state == InstanceState::Stopping
+                    {
+                        inst.state = exit_state.clone();
+                        let _ = event_tx.send(Event::InstanceStateChange {
+                            instance_id: id_str,
+                            state: exit_state,
+                        });
+                    }
+                }
+            });
+        }
 
         Ok(())
     }
@@ -390,7 +582,12 @@ impl InstanceManager {
         if !line.ends_with('\n') {
             line.push('\n');
         }
-        stdin.write_all(line.as_bytes()).await?;
+        stdin.write_all(line.as_bytes()).await.map_err(|e| {
+            InstanceError::Io(std::io::Error::new(
+                e.kind(),
+                format!("Failed to send command to instance {}: {}", id, e),
+            ))
+        })?;
         Ok(())
     }
 
@@ -411,20 +608,9 @@ impl InstanceManager {
             return Ok(());
         }
 
-        // Emit Stopping
-        {
-            let mut map = self.instances.write().await;
-            if let Some(inst) = map.get_mut(id) {
-                inst.state = InstanceState::Stopping;
-            }
-        }
-        let _ = self.event_tx.send(Event::InstanceStateChange {
-            instance_id: id.into(),
-            state: InstanceState::Stopping,
-        });
+        self.transition_state(id, InstanceState::Stopping).await;
 
-        // Take stdin and child handle — stop() is the sole owner now
-        // Send stop command via the separate stdin channel
+        // Send stop command via stdin — the exit monitor handles the rest
         {
             let mut stdins = self.stdins.lock().await;
             if let Some(mut stdin) = stdins.remove(id) {
@@ -432,35 +618,39 @@ impl InstanceManager {
             }
         }
 
-        if let Some(mut child) = self.children.lock().await.remove(id) {
-            // Wait for graceful exit with timeout
-            match tokio::time::timeout(std::time::Duration::from_secs(60), child.wait()).await {
-                Ok(Ok(_)) => { /* clean exit */ }
-                Ok(Err(e)) => return Err(InstanceError::Io(e)),
-                Err(_) => {
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
-                }
+        // Wait for the exit monitor to detect the process exit (up to 60s)
+        for _ in 0..600 {
+            let state = {
+                let map = self.instances.read().await;
+                map.get(id).map(|i| i.state.clone())
+            };
+            if state != Some(InstanceState::Stopping) {
+                break;
             }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
-        // Only set Stopped if WE waited for the process (i.e. we took the child).
-        // If the exit monitor took the child, it already handled the state change.
-        // Check if state is still Stopping — if so, we handled the exit.
-        {
-            let mut map = self.instances.write().await;
-            if let Some(inst) = map.get_mut(id) {
-                if inst.state == InstanceState::Stopping {
-                    inst.state = InstanceState::Stopped;
+        let timed_out = {
+            let map = self.instances.read().await;
+            map.get(id).map(|i| i.state.clone()) == Some(InstanceState::Stopping)
+        };
+
+        if timed_out {
+            if let Some(kill_tx) = self.process_killers.lock().await.remove(id) {
+                let _ = kill_tx.send(());
+            }
+
+            for _ in 0..50 {
+                let state = {
+                    let map = self.instances.read().await;
+                    map.get(id).map(|i| i.state.clone())
+                };
+                if state != Some(InstanceState::Stopping) {
+                    break;
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
-        // Still emit the event so the background listener picks it up
-        // (harmless if the exit monitor already emitted it).
-        let _ = self.event_tx.send(Event::InstanceStateChange {
-            instance_id: id.into(),
-            state: InstanceState::Stopped,
-        });
 
         Ok(())
     }
@@ -472,111 +662,27 @@ impl InstanceManager {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         self.start(id).await
     }
-}
 
-/// Build the Java launch command based on server type using Command.md guidelines.
-pub fn build_java_command(jar_path: &Path, server_type: &ServerType, java_args: &str) -> (String, Vec<String>) {
-    let java = "java".to_string();
-    let mut args: Vec<String> = Vec::new();
-
-    // Parse user-provided memory args (-Xmx, -Xms)
-    let mem_xmx = java_args.split_whitespace()
-        .find(|a| a.starts_with("-Xmx")).unwrap_or("-Xmx2G");
-    let mem_xms = java_args.split_whitespace()
-        .find(|a| a.starts_with("-Xms")).unwrap_or("-Xms2G");
-
-    match server_type {
-        ServerType::Paper | ServerType::Spigot => {
-            // Aikar's Flags for G1GC (Command.md section 五.2)
-            args.push(mem_xms.to_string());
-            args.push(mem_xmx.to_string());
-            args.extend([
-                "-XX:+UseG1GC".to_string(), "-XX:+ParallelRefProcEnabled".to_string(), "-XX:MaxGCPauseMillis=200".to_string(),
-                "-XX:+UnlockExperimentalVMOptions".to_string(), "-XX:+DisableExplicitGC".to_string(), "-XX:+AlwaysPreTouch".to_string(),
-                "-XX:G1NewSizePercent=30".to_string(), "-XX:G1MaxNewSizePercent=40".to_string(), "-XX:G1HeapRegionSize=8M".to_string(),
-                "-XX:G1ReservePercent=20".to_string(), "-XX:G1HeapWastePercent=5".to_string(), "-XX:G1MixedGCCountTarget=4".to_string(),
-                "-XX:InitiatingHeapOccupancyPercent=15".to_string(), "-XX:G1MixedGCLiveThresholdPercent=90".to_string(),
-                "-XX:G1RSetUpdatingPauseTimePercent=5".to_string(), "-XX:SurvivorRatio=32".to_string(),
-                "-XX:+PerfDisableSharedMem".to_string(), "-XX:MaxTenuringThreshold=1".to_string(),
-            ]);
+    async fn transition_state(&self, id: &str, state: InstanceState) {
+        {
+            let mut map = self.instances.write().await;
+            if let Some(inst) = map.get_mut(id) {
+                inst.state = state.clone();
+            }
         }
-        ServerType::Vanilla => {
-            // Simple flags (Command.md section 五.1)
-            args.push(mem_xms.to_string());
-            args.push(mem_xmx.to_string());
-        }
-        ServerType::Fabric => {
-            // Lightweight flags (Command.md section 五.4)
-            args.push(mem_xms.to_string());
-            args.push(mem_xmx.to_string());
-        }
+        let _ = self.event_tx.send(Event::InstanceStateChange {
+            instance_id: id.into(),
+            state,
+        });
     }
-
-    args.push("-jar".to_string());
-    args.push(jar_path.to_string_lossy().to_string());
-    args.push("nogui".to_string());
-
-    (java, args)
-}
-
-/// Generate a random alphanumeric string of the given length (a-z, A-Z, 0-9).
-fn random_alphanumeric(length: usize) -> String {
-    let mut bytes = vec![0u8; length];
-    getrandom::getrandom(&mut bytes).expect("getrandom failed");
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    bytes
-        .iter()
-        .map(|&b| CHARSET[(b as usize) % CHARSET.len()] as char)
-        .collect()
-}
-
-/// Generate a random lowercase hex string of the given length.
-fn random_hex(length: usize) -> String {
-    let byte_len = (length + 1) / 2;
-    let mut bytes = vec![0u8; byte_len];
-    getrandom::getrandom(&mut bytes).expect("getrandom failed");
-    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-    hex[..length].to_string()
-}
-
-/// Compare a Minecraft version string (e.g. "1.21.9") against a minimum required
-/// major.minor.patch. Returns true if the version is at least the given target.
-/// Two-part versions like "1.22" are treated as major.minor.0.
-/// Returns false for unparseable version strings.
-pub fn version_at_least(version: &str, major: u32, minor: u32, patch: u32) -> bool {
-    let parts: Vec<&str> = version.split('.').collect();
-    if parts.len() < 2 {
-        return false;
-    }
-    let v_major: u32 = match parts[0].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let v_minor: u32 = match parts[1].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let v_patch: u32 = if parts.len() >= 3 {
-        match parts[2].parse() {
-            Ok(v) => v,
-            Err(_) => return false,
-        }
-    } else {
-        0
-    };
-    if v_major != major {
-        return v_major > major;
-    }
-    if v_minor != minor {
-        return v_minor > minor;
-    }
-    v_patch >= patch
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstanceError {
     #[error("Port {0} is already in use")]
     PortInUse(u16),
+    #[error("{0}")]
+    PortUnavailable(String),
     #[error("Instance {0} not found")]
     NotFound(String),
     #[error("Instance {0} is not stopped")]
@@ -587,4 +693,6 @@ pub enum InstanceError {
     Json(#[from] serde_json::Error),
     #[error("Download failed: {0}")]
     Download(String),
+    #[error("JAR read error: {0}")]
+    JarRead(String),
 }

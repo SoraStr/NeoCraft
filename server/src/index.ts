@@ -1,10 +1,9 @@
 import { buildApp } from './app.js';
+import { loadListenConfig } from './config.js';
 
 async function main() {
   const { server } = await buildApp();
-
-  const port = parseInt(process.env.PORT || '3001', 10);
-  const host = process.env.HOST || '127.0.0.1';
+  const { port, host } = loadListenConfig();
 
   await server.listen({ port, host });
   server.log.info(`NeoCraft API server listening on http://${host}:${port}`);

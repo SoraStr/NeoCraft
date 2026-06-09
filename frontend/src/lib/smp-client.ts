@@ -68,7 +68,7 @@ export class SmpClient {
       this.connectReject = reject;
     });
 
-    const ws = new WebSocket(this.url, `minecraft-v1, ${this.token}`);
+    const ws = new WebSocket(this.url, ['minecraft-v1', this.token]);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -217,7 +217,14 @@ export class SmpClient {
     this.connectResolve = null;
     this.connectReject = null;
 
+    for (const [, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Connection closed'));
+    }
+    this.pending.clear();
+
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }

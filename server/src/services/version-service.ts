@@ -1,6 +1,6 @@
 export interface ServerVersion {
   id: string;
-  type: 'vanilla' | 'paper' | 'spigot' | 'fabric';
+  type: 'vanilla' | 'paper' | 'spigot' | 'fabric' | 'forge' | 'custom';
   downloadUrl?: string;
 }
 
@@ -9,17 +9,93 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-// ─── PaperMC ────────────────────────────────────────────────────────
+// ─── PaperMC (GraphQL API) ──────────────────────────────────────────
+
+const PAPER_GQL = 'https://fill.papermc.io/graphql';
+
+interface GqlResponse<T> {
+  data?: T;
+  errors?: Array<{ message: string }>;
+}
+
+interface PaperVersionNode {
+  key: string;
+  family: { key: string };
+  builds?: { nodes: Array<{ number: number; downloads: Array<{ name: string; url: string }> }> };
+}
+
+async function gqlQuery<T>(query: string): Promise<T> {
+  const res = await fetch(PAPER_GQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'NeoCraft/0.1' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error(`Paper GraphQL error: ${res.status}`);
+  const json = await res.json() as GqlResponse<T>;
+  if (json.errors?.length) throw new Error(`GraphQL error: ${json.errors[0].message}`);
+  return json.data!;
+}
+
+function isReleaseVersion(key: string): boolean {
+  return !key.includes('-pre') && !key.includes('-rc');
+}
+
+async function fetchPaperVersions(): Promise<ServerVersion[]> {
+  const query = `{
+    project(key: "paper") {
+      families { key }
+    }
+  }`;
+  const data = await gqlQuery<{
+    project: { families: Array<{ key: string }> };
+  }>(query);
+
+  const families = data.project.families.map(f => f.key);
+  // Collect versions from each family in parallel
+  const allVersions: ServerVersion[] = [];
+  const results = await Promise.all(
+    families.map(async (familyKey) => {
+      const vQuery = `{
+        project(key: "paper") {
+          versions(first: 50, filterBy: { familyKey: "${familyKey}" }) {
+            nodes { key }
+          }
+        }
+      }`;
+      const vData = await gqlQuery<{
+        project: { versions: { nodes: Array<{ key: string }> } };
+      }>(vQuery);
+      return vData.project.versions.nodes
+        .filter(v => isReleaseVersion(v.key))
+        .map(v => ({ id: v.key, type: 'paper' as const }));
+    }),
+  );
+  for (const vers of results) allVersions.push(...vers);
+  return allVersions.sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
+}
 
 async function resolvePaperDownload(version: string): Promise<string> {
-  const buildsUrl = `https://api.papermc.io/v2/projects/paper/versions/${version}`;
-  const res = await fetch(buildsUrl, { headers: { 'User-Agent': 'NeoCraft/0.1' } });
-  if (!res.ok) throw new Error(`Paper builds fetch failed: ${res.status}`);
-  const data = await res.json() as { builds: number[] };
-  const builds = data.builds;
-  if (!builds || builds.length === 0) throw new Error(`No builds for Paper ${version}`);
-  const latestBuild = builds[builds.length - 1];
-  return `https://api.papermc.io/v2/projects/paper/versions/${version}/builds/${latestBuild}/downloads/paper-${version}-${latestBuild}.jar`;
+  const query = `{
+    project(key: "paper") {
+      version(key: "${version}") {
+        builds(first: 1, orderBy: { direction: DESC }) {
+          nodes {
+            downloads { name url }
+          }
+        }
+      }
+    }
+  }`;
+  const data = await gqlQuery<{
+    project: {
+      version: PaperVersionNode | null;
+    };
+  }>(query);
+
+  if (!data.project.version) throw new Error(`Version ${version} not found`);
+  const downloads = data.project.version.builds?.nodes?.[0]?.downloads;
+  if (!downloads?.length) throw new Error(`No download for Paper ${version}`);
+  return downloads[0].url;
 }
 
 // ─── Vanilla / Mojang ────────────────────────────────────────────────
@@ -40,16 +116,20 @@ async function fetchSpigotVersions(): Promise<ServerVersion[]> {
   if (!res.ok) throw new Error(`Spigot versions fetch failed: ${res.status}`);
   const html = await res.text();
 
-  const linkRegex = /<a[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi;
+  // Each link: <a href="1.21.9.json">1.21.9.json</a>
+  //  or: <a href="1.21.json">1.21.json</a>
+  // Pure-number versions like 1000.json are Spigot internal — skip those
+  const linkRegex = /<a[^>]*href="(\d+\.\d+(?:\.\d+)?)\.json"[^>]*>/gi;
+  const versionRegex = /^\d+\.\d+(?:\.\d+)?$/;
   const versions: ServerVersion[] = [];
   const seen = new Set<string>();
 
   let match;
   while ((match = linkRegex.exec(html)) !== null) {
-    const text = match[2].trim();
-    if (/^\d+\.\d+(?:\.\d+)?$/.test(text) && !seen.has(text)) {
-      seen.add(text);
-      versions.push({ id: text, type: 'spigot' });
+    const version = match[1];
+    if (versionRegex.test(version) && !seen.has(version)) {
+      seen.add(version);
+      versions.push({ id: version, type: 'spigot' });
     }
   }
 
@@ -65,31 +145,18 @@ async function fetchSpigotVersions(): Promise<ServerVersion[]> {
 }
 
 function resolveSpigotDownload(version: string): string {
-  return `https://download.getbukkit.org/spigot/spigot-${version}.jar`;
+  return `https://cdn.getbukkit.org/spigot/spigot-${version}.jar`;
 }
 
 // ─── Fabric ──────────────────────────────────────────────────────────
 
-let cachedFabricLoader: string | null = null;
-
-async function getFabricLoaderVersion(): Promise<string> {
-  if (cachedFabricLoader) return cachedFabricLoader;
-  const res = await fetch('https://meta.fabricmc.net/v2/versions/loader');
-  if (!res.ok) throw new Error(`Fabric loader fetch failed: ${res.status}`);
-  const loaders = await res.json() as Array<{ version: string; stable: boolean }>;
-  const stable = loaders.find(l => l.stable) || loaders[0];
-  if (!stable) throw new Error('No Fabric loader found');
-  cachedFabricLoader = stable.version;
-  return cachedFabricLoader;
-}
-
-async function resolveFabricDownload(gameVersion: string): Promise<string> {
-  const loaderVer = await getFabricLoaderVersion();
-  const url = `https://meta.fabricmc.net/v2/versions/loader/${gameVersion}/${loaderVer}/server/json`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fabric server info fetch failed: ${res.status}`);
-  const data = await res.json() as { downloads: { server: { url: string } } };
-  return data.downloads.server.url;
+function resolveFabricDownload(
+  gameVersion: string,
+  loaderVersion: string,
+  installerVersion: string,
+): string {
+  // https://meta.fabricmc.net/v2/versions/loader/{mc}/{loader}/{installer}/server/jar
+  return `https://meta.fabricmc.net/v2/versions/loader/${gameVersion}/${loaderVersion}/${installerVersion}/server/jar`;
 }
 
 // ─── Main Service ───────────────────────────────────────────────────
@@ -98,6 +165,8 @@ export class VersionService {
   private cache = new Map<string, CacheEntry<ServerVersion[]>>();
   private urlCache = new Map<string, CacheEntry<string>>();
   private cacheTTL = 10 * 60 * 1000; // 10 minutes
+  private fabricLoadersCache: CacheEntry<Array<{ version: string; stable: boolean }>> | null = null;
+  private fabricInstallersCache: CacheEntry<Array<{ version: string; stable: boolean }>> | null = null;
 
   /** Get version list (fast — no download URL resolution) */
   async getPaperVersions(): Promise<ServerVersion[]> {
@@ -105,15 +174,7 @@ export class VersionService {
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) return cached.data;
 
-    const url = 'https://api.papermc.io/v2/projects/paper';
-    const response = await fetch(url, { headers: { 'User-Agent': 'NeoCraft/0.1' } });
-    if (!response.ok) throw new Error(`Paper API error: ${response.status}`);
-
-    const data = await response.json() as { versions: string[] };
-    const versions: ServerVersion[] = data.versions
-      .reverse()
-      .slice(0, 30)
-      .map(v => ({ id: v, type: 'paper' as const }));
+    const versions = await fetchPaperVersions();
 
     this.cache.set(cacheKey, { data: versions, timestamp: Date.now() });
     return versions;
@@ -171,19 +232,51 @@ export class VersionService {
     return versions;
   }
 
+  /** Get Fabric loader versions with TTL-based caching. */
+  async getFabricLoaderVersions(): Promise<Array<{ version: string; stable: boolean }>> {
+    if (this.fabricLoadersCache && Date.now() - this.fabricLoadersCache.timestamp < this.cacheTTL) {
+      return this.fabricLoadersCache.data;
+    }
+    const res = await fetch('https://meta.fabricmc.net/v2/versions/loader');
+    if (!res.ok) throw new Error(`Fabric loader fetch failed: ${res.status}`);
+    const data = await res.json() as Array<{ version: string; stable: boolean }>;
+    this.fabricLoadersCache = { data, timestamp: Date.now() };
+    return data;
+  }
+
+  /** Get Fabric installer versions with TTL-based caching. */
+  async getFabricInstallerVersions(): Promise<Array<{ version: string; stable: boolean }>> {
+    if (this.fabricInstallersCache && Date.now() - this.fabricInstallersCache.timestamp < this.cacheTTL) {
+      return this.fabricInstallersCache.data;
+    }
+    const res = await fetch('https://meta.fabricmc.net/v2/versions/installer');
+    if (!res.ok) throw new Error(`Fabric installer fetch failed: ${res.status}`);
+    const data = await res.json() as Array<{ version: string; stable: boolean }>;
+    this.fabricInstallersCache = { data, timestamp: Date.now() };
+    return data;
+  }
+
   async getVersions(serverType: string): Promise<ServerVersion[]> {
     switch (serverType) {
       case 'paper':   return this.getPaperVersions();
       case 'vanilla': return this.getVanillaVersions();
       case 'spigot':  return this.getSpigotVersions();
       case 'fabric':  return this.getFabricVersions();
+      case 'forge':   return []; // Forge servers are imported — no version API
+      case 'custom':  return []; // Custom servers use their own JAR — no version list
       default: throw new Error(`Unknown server type: ${serverType}`);
     }
   }
 
-  /** Resolve download URL for a specific version (called lazily when user picks a version) */
-  async resolveDownloadUrl(serverType: string, version: string): Promise<string> {
-    const cacheKey = `url:${serverType}:${version}`;
+  /** Resolve download URL. For Fabric, `version` = minecraft version, and
+   *  `fabricLoader` + `fabricInstaller` must be provided. */
+  async resolveDownloadUrl(
+    serverType: string,
+    version: string,
+    fabricLoader?: string,
+    fabricInstaller?: string,
+  ): Promise<string> {
+    const cacheKey = `url:${serverType}:${version}:${fabricLoader || ''}:${fabricInstaller || ''}`;
     const cached = this.urlCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) return cached.data;
 
@@ -211,8 +304,15 @@ export class VersionService {
         break;
       }
       case 'fabric': {
-        url = await resolveFabricDownload(version);
+        if (!fabricLoader || !fabricInstaller) {
+          throw new Error('Fabric requires loader and installer version parameters');
+        }
+        url = resolveFabricDownload(version, fabricLoader, fabricInstaller);
         break;
+      }
+      case 'forge':
+      case 'custom': {
+        throw new Error('Forge and custom servers do not support download URL resolution — provide your own server directory');
       }
       default:
         throw new Error(`Unknown server type: ${serverType}`);

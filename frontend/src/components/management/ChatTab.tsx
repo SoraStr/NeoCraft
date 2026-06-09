@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SmpClient } from '../../lib/smp-client';
 import { ErrorBanner } from '../ui/ErrorBanner';
 
@@ -7,6 +8,7 @@ interface ChatTabProps {
 }
 
 export function ChatTab({ client }: ChatTabProps) {
+  const { t } = useTranslation();
   const [message, setMessage] = useState('');
   const [overlay, setOverlay] = useState(false);
   const [sending, setSending] = useState(false);
@@ -22,7 +24,11 @@ export function ChatTab({ client }: ChatTabProps) {
     setSent(false);
 
     try {
-      await client.call('server/system_message', [{ message: trimmed, overlay }]);
+      await client.call('server/system_message', [{
+        message: { literal: trimmed, translatable: '', translatableParams: [] },
+        overlay,
+        receivingPlayers: [],
+      }]);
       setMessage('');
       setSent(true);
       setTimeout(() => setSent(false), 2000);
@@ -35,20 +41,14 @@ export function ChatTab({ client }: ChatTabProps) {
 
   return (
     <div className="animate-fade-in space-y-5 max-w-xl">
-      <h3 className="text-sm font-semibold text-app-text">Send System Message</h3>
+      <h3 className="text-sm font-semibold text-app-text">{t('management.tabs.chat')}</h3>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
       {/* Message input */}
       <div>
-        <label className="block text-xs font-medium text-app-text-secondary mb-1.5">
-          Message
-        </label>
-        <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Type a system message to broadcast to all players..."
-          rows={3}
+        <label className="block text-xs font-medium text-app-text-secondary mb-1.5">{t('management.fields.message')}</label>
+        <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('management.fields.messagePlaceholder')} rows={3}
           className="w-full px-3 py-2.5 rounded-xl bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm outline-none transition-colors resize-none"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -60,25 +60,23 @@ export function ChatTab({ client }: ChatTabProps) {
       </div>
 
       {/* Overlay toggle */}
-      <div className="flex items-center gap-3">
+      <label className="flex items-center gap-3 cursor-pointer select-none">
         <button
-          onClick={() => setOverlay(!overlay)}
-          className={`relative w-10 h-5 rounded-full transition-colors ${
+          onClick={(e) => { e.preventDefault(); setOverlay(!overlay); }}
+          className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
             overlay ? 'bg-app-accent' : 'bg-app-border-hover'
           }`}
           role="switch"
           aria-checked={overlay}
         >
           <span
-            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-              overlay ? 'translate-x-5' : 'translate-x-0.5'
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              overlay ? 'translate-x-5' : 'translate-x-0'
             }`}
           />
         </button>
-        <span className="text-sm text-app-text-secondary">
-          Show as overlay{overlay ? ' (on screen for all players)' : ' (chat only)'}
-        </span>
-      </div>
+        <span className="text-sm text-app-text-secondary leading-5">{t('management.fields.overlay')}{overlay ? t('management.fields.overlayOnScreen') : t('management.fields.overlayChatOnly')}</span>
+      </label>
 
       {/* Send button */}
       <div className="flex items-center gap-3">
@@ -88,18 +86,12 @@ export function ChatTab({ client }: ChatTabProps) {
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors"
         >
           <SendIcon className="w-4 h-4" />
-          {sending ? 'Sending...' : 'Send Message'}
+          {sending ? t('management.buttons.sending') : t('management.buttons.send')}
         </button>
-        {sent && (
-          <span className="text-sm font-semibold text-app-green animate-fade-in">
-            Sent!
-          </span>
-        )}
+        {sent && <span className="text-sm font-semibold text-app-green animate-fade-in">✓</span>}
       </div>
 
-      <p className="text-xs text-app-text-muted">
-        Press Cmd/Ctrl + Enter to send.
-      </p>
+      <p className="text-xs text-app-text-muted">{t('management.action.shortcutHint')}</p>
     </div>
   );
 }

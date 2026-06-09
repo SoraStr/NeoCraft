@@ -26,14 +26,29 @@ describe('VersionService', () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ project_id: 'paper', versions: ['1.21.1', '1.21.5'] }),
-    });
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: { project: { families: [{ key: '26.1' }, { key: '1.21' }] } },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: { project: { versions: { nodes: [{ key: '26.1.1' }, { key: '26.1.2' }] } } },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: { project: { versions: { nodes: [{ key: '1.21.4' }, { key: '1.21.5' }] } } },
+        }),
+      });
 
     const versions = await service.getPaperVersions();
-    expect(versions.length).toBe(2);
-    expect(versions[0].id).toBe('1.21.5'); // reversed, newest first
+    expect(versions.length).toBe(4);
+    expect(versions[0].id).toBe('26.1.2'); // newest first
     expect(versions[0].type).toBe('paper');
     expect(versions[0].downloadUrl).toBeUndefined();
   });
@@ -44,13 +59,29 @@ describe('VersionService', () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ builds: [100, 200, 300] }),
+      json: () => Promise.resolve({
+        data: {
+          project: {
+            version: {
+              key: '26.1.1',
+              builds: {
+                nodes: [{
+                  number: 29,
+                  downloads: [{
+                    name: 'paper-26.1.1-29.jar',
+                    url: 'https://fill-data.papermc.io/v1/objects/abc/paper-26.1.1-29.jar',
+                  }],
+                }],
+              },
+            },
+          },
+        },
+      }),
     });
 
-    const url = await service.resolveDownloadUrl('paper', '1.21.5');
-    expect(url).toContain('api.papermc.io');
-    expect(url).toContain('1.21.5');
-    expect(url).toContain('300'); // latest build
+    const url = await service.resolveDownloadUrl('paper', '26.1.1');
+    expect(url).toContain('fill-data.papermc.io');
+    expect(url).toContain('paper-26.1.1');
   });
 
   it('should resolve Vanilla download URL lazily', async () => {
@@ -83,10 +114,19 @@ describe('VersionService', () => {
     const { VersionService } = await import('../../src/services/version-service');
     const service = new VersionService();
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ project_id: 'paper', versions: ['1.21.5'] }),
-    });
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: { project: { families: [{ key: '1.21' }] } },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: { project: { versions: { nodes: [{ key: '1.21.5' }] } } },
+        }),
+      });
 
     const versions = await service.getVersions('paper');
     expect(versions.length).toBe(1);
