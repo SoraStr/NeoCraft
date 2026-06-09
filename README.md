@@ -8,7 +8,16 @@
 
 [简体中文](README-ZH.md)
 
-![NeoCraft dashboard](test-dashboard.png)
+## Screenshots
+
+![NeoCraft Dashboard](dashboard.png)
+*Main dashboard with server instances overview*
+
+![Server Overview](server-overview.png)
+*Server console with live logs, player tracking, and status monitoring*
+
+![Mod/Plugin Market](mod-market.png)
+*Built-in marketplace for browsing and installing mods/plugins*
 
 ## Highlights
 

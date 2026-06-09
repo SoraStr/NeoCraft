@@ -8,7 +8,16 @@
 
 [English](README.md)
 
-![NeoCraft 仪表盘](test-dashboard.png)
+## 屏幕截图
+
+![NeoCraft 仪表盘](dashboard.png)
+*主仪表盘 - 服务器实例概览*
+
+![服务器概览](server-overview.png)
+*服务器控制台 - 实时日志、玩家跟踪和状态监控*
+
+![模组/插件市场](mod-market.png)
+*内置市场 - 浏览和安装模组/插件*
 
 ## 核心特点
 
