@@ -24,6 +24,7 @@ export class DaemonRuntime {
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribeEvents: (() => void) | null = null;
   private child: ChildProcess | null = null;
+  private recoveryInFlight: Promise<void> | null = null;
 
   constructor(private readonly options: DaemonRuntimeOptions) {}
 
@@ -57,6 +58,8 @@ export class DaemonRuntime {
   }
 
   private async connectOrStart(): Promise<void> {
+    this.refreshAuthToken();
+
     try {
       await this.options.ipc.connect();
       this.setConnected(true);
@@ -74,18 +77,22 @@ export class DaemonRuntime {
       return;
     }
 
-    this.child = spawnDaemon({
-      socketPath: this.options.config.ipcSocketPath,
-      dataDir: this.options.config.dataDir,
-      logger: this.options.logger,
-    });
-    if (!this.child) return;
-
-    // Re-read the auth token that the daemon just wrote to disk.
-    const token = readTokenFileSync(this.options.config.dataDir);
-    if (token) {
-      this.options.ipc.setAuthToken(token);
+    if (!this.hasRunningChild()) {
+      const child = spawnDaemon({
+        socketPath: this.options.config.ipcSocketPath,
+        dataDir: this.options.config.dataDir,
+        logger: this.options.logger,
+      });
+      if (!child) return;
+      this.child = child;
+      child.on('exit', () => {
+        if (this.child === child) {
+          this.child = null;
+        }
+      });
     }
+
+    this.refreshAuthToken();
 
     for (let attempt = 1; attempt <= this.options.config.daemonStartupRetries; attempt += 1) {
       await delay(this.options.config.daemonStartupRetryDelayMs);
@@ -108,6 +115,7 @@ export class DaemonRuntime {
       this.setConnected(true);
     } catch {
       this.setConnected(false);
+      await this.recoverConnection();
     }
   }
 
@@ -122,6 +130,31 @@ export class DaemonRuntime {
       event: 'daemon.status',
       data: this.status,
     });
+  }
+
+  private async recoverConnection(): Promise<void> {
+    if (this.recoveryInFlight) return this.recoveryInFlight;
+
+    this.recoveryInFlight = this.connectOrStart()
+      .catch((error) => {
+        this.options.logger.warn({ error }, 'Daemon recovery attempt failed');
+      })
+      .finally(() => {
+        this.recoveryInFlight = null;
+      });
+
+    return this.recoveryInFlight;
+  }
+
+  private hasRunningChild(): boolean {
+    return this.child !== null && this.child.exitCode === null && !this.child.killed;
+  }
+
+  private refreshAuthToken(): void {
+    const token = readTokenFileSync(this.options.config.dataDir);
+    if (token) {
+      this.options.ipc.setAuthToken(token);
+    }
   }
 }
 

@@ -45,4 +45,21 @@ describe('IpcClient', () => {
     const badClient = new IpcClient('/nonexistent/path.sock');
     await expect(badClient.connect()).rejects.toThrow();
   });
+
+  it('should reject requests instead of crashing when the daemon disconnects', async () => {
+    const isolatedMock = await createMockDaemon();
+    const isolatedClient = new IpcClient(isolatedMock.socketPath);
+
+    try {
+      await isolatedClient.connect();
+      await isolatedMock.restart(100);
+
+      await expect(
+        isolatedClient.request('instance.list', {}, { timeout: 500 })
+      ).rejects.toThrow();
+    } finally {
+      await isolatedClient.disconnect();
+      isolatedMock.cleanup();
+    }
+  });
 });

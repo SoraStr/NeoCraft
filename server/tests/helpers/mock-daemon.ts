@@ -10,17 +10,38 @@ export interface MockDaemon {
   server: Server;
   clients: Set<Socket>;
   cleanup: () => void;
-  restart: () => Promise<void>;
+  restart: (delayMs?: number) => Promise<void>;
 }
 
-export function createMockDaemon(): Promise<MockDaemon> {
+interface MockDaemonOptions {
+  authToken?: string;
+}
+
+export function createMockDaemon(options: MockDaemonOptions = {}): Promise<MockDaemon> {
   return new Promise((resolve, reject) => {
     const socketPath = join(tmpdir(), `neocraft-mock-${randomUUID()}.sock`);
 
+    const clients = new Set<Socket>();
+
     const server = createServer((socket) => {
+      clients.add(socket);
+      socket.on('close', () => clients.delete(socket));
+
       const rl = createInterface({ input: socket, crlfDelay: Infinity });
+      let authenticated = !options.authToken;
 
       rl.on('line', (line) => {
+        if (!authenticated) {
+          if (line.trim() === options.authToken) {
+            authenticated = true;
+            socket.write(JSON.stringify({ auth: 'ok' }) + '\n');
+          } else {
+            socket.write(JSON.stringify({ auth: 'error', message: 'Invalid token' }) + '\n');
+            socket.destroy();
+          }
+          return;
+        }
+
         try {
           const req = JSON.parse(line);
 
@@ -54,15 +75,21 @@ export function createMockDaemon(): Promise<MockDaemon> {
       resolve({
         socketPath,
         server,
-        clients: new Set(),
+        clients,
         cleanup: () => {
+          for (const client of clients) client.destroy();
           server.close();
           try { unlinkSync(socketPath); } catch {}
         },
-        restart: () => {
+        restart: (delayMs = 0) => {
           return new Promise<void>((res) => {
-            server.close();
-            server.listen(socketPath, () => res());
+            for (const client of clients) client.destroy();
+            server.close(() => {
+              setTimeout(() => {
+                try { unlinkSync(socketPath); } catch {}
+                server.listen(socketPath, () => res());
+              }, delayMs);
+            });
           });
         },
       });

@@ -24,6 +24,7 @@ type EventCallback = (event: IpcEvent) => void;
 export class IpcClient {
   private socket: Socket | null = null;
   private rl: Interface | null = null;
+  private connected = false;
   private pending = new Map<string, {
     resolve: (value: IpcResponse) => void;
     reject: (reason: Error) => void;
@@ -45,20 +46,38 @@ export class IpcClient {
     this.authToken = authToken ?? null;
   }
 
+  get isConnected(): boolean {
+    return this.connected && this.socket !== null && !this.socket.destroyed;
+  }
+
   /** Update the auth token (e.g. after daemon auto-start generates one). */
   setAuthToken(token: string | null): void {
     this.authToken = token;
   }
 
   async connect(): Promise<void> {
+    this.cancelReconnectTimer();
     // Clean up any previous connection first to prevent duplicate event processing
     this.cleanup();
     this.connecting = true;
     this.shouldReconnect = true;
 
     return new Promise((resolve, reject) => {
+      let connectionReady = false;
+      let settled = false;
+      const rejectConnect = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
       this.socket = createConnection(this.socketPath, async () => {
         this.rl = createInterface({ input: this.socket!, crlfDelay: Infinity });
+        this.rl.on('error', () => {
+          if (!connectionReady) {
+            rejectConnect(new Error('Disconnected'));
+          }
+          this.handleDisconnect(connectionReady);
+        });
 
         // ── IPC Authentication handshake ──
         // The daemon expects the auth token as the first line if auth is enabled.
@@ -68,28 +87,32 @@ export class IpcClient {
           } catch (authErr) {
             this.connecting = false;
             this.cleanup();
-            reject(authErr);
+            rejectConnect(authErr instanceof Error ? authErr : new Error(String(authErr)));
             return;
           }
         }
 
         this.rl.on('line', (line: string) => this.handleLine(line));
         this.connecting = false;
+        this.connected = true;
+        connectionReady = true;
+        settled = true;
         this.reconnectDelay = 100; // reset backoff on successful connection
         resolve();
       });
 
       this.socket.on('error', (err) => {
-        this.connecting = false;
-        this.cleanup();
-        reject(err);
+        this.handleDisconnect(connectionReady);
+        if (!connectionReady) {
+          rejectConnect(err);
+        }
       });
 
       this.socket.on('close', () => {
-        this.connecting = false;
-        if (this.shouldReconnect && !this.reconnectTimerActive) {
-          this.reconnect();
+        if (!connectionReady) {
+          rejectConnect(new Error('Disconnected'));
         }
+        this.handleDisconnect(connectionReady);
       });
     });
   }
@@ -145,6 +168,7 @@ export class IpcClient {
   }
 
   private cleanup(): void {
+    this.connected = false;
     if (this.rl) {
       this.rl.removeAllListeners();
       this.rl.close();
@@ -159,18 +183,9 @@ export class IpcClient {
 
   async disconnect(): Promise<void> {
     this.shouldReconnect = false;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-      this.reconnectTimerActive = false;
-    }
+    this.cancelReconnectTimer();
     this.cleanup();
-    // Reject all pending requests
-    for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Disconnected'));
-    }
-    this.pending.clear();
+    this.rejectPending(new Error('Disconnected'));
   }
 
   async request(
@@ -178,7 +193,7 @@ export class IpcClient {
     params: Record<string, unknown>,
     opts?: { timeout?: number }
   ): Promise<IpcResponse> {
-    if (!this.socket) throw new Error('Not connected');
+    if (!this.isConnected) throw new Error('Not connected');
 
     const id = randomUUID();
     const timeout = opts?.timeout ?? 30000;
@@ -196,6 +211,7 @@ export class IpcClient {
         if (!err) return;
         clearTimeout(timer);
         this.pending.delete(id);
+        this.handleDisconnect(true);
         reject(err);
       });
     });
@@ -239,7 +255,32 @@ export class IpcClient {
       this.reconnectTimer = null;
       this.connect().catch(() => {
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+        this.reconnect();
       });
     }, this.reconnectDelay);
+  }
+
+  private handleDisconnect(wasConnected: boolean): void {
+    this.connecting = false;
+    this.cleanup();
+    this.rejectPending(new Error('Disconnected'));
+    if (wasConnected && this.shouldReconnect && !this.reconnectTimerActive) {
+      this.reconnect();
+    }
+  }
+
+  private cancelReconnectTimer(): void {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectTimerActive = false;
+  }
+
+  private rejectPending(error: Error): void {
+    for (const [, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
   }
 }
