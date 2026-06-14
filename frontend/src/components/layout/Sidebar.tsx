@@ -12,6 +12,7 @@ import {
   Pickaxe,
   Flame,
   Info,
+  Settings,
 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useInstanceStore } from '../../stores/instanceStore';
@@ -115,6 +116,10 @@ export default function Sidebar() {
         </NavLink>
 
         <div className="mt-4 pt-3 border-t border-app-border">
+          <NavLink to="/settings" className={linkClass}>
+            <Settings className="w-4 h-4 flex-shrink-0" />
+            {t('nav.settings') || '面板设置'}
+          </NavLink>
           <NavLink to="/about" className={linkClass}>
             <Info className="w-4 h-4 flex-shrink-0" />
             {t('nav.about')}

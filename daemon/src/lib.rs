@@ -8,6 +8,7 @@ pub mod monitor;
 pub mod logpipe;
 pub mod files;
 pub mod detect;
+pub mod docker;
 pub mod handler;
 pub mod java_args;
 pub mod java_detect;

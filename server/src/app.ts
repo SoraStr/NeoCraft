@@ -16,6 +16,7 @@ import { ModMarketService } from './services/mod-market-service.js';
 import { ModpackService } from './services/modpack-service.js';
 import { ModpackMarketService } from './services/modpack-market-service.js';
 import { modpackMarketRoutes } from './routes/modpack-market.js';
+import { loadPanelSettings, initPanelSettings } from './services/panel-settings.js';
 import { loadRuntimeConfig, loadAuthToken, type RuntimeOptions } from './config.js';
 import { DaemonRuntime } from './services/daemon-runtime.js';
 
@@ -35,6 +36,8 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
     ...options,
     autoStartDaemon: options.mockIpc ? false : options.autoStartDaemon,
   });
+
+  initPanelSettings(loadPanelSettings(runtimeConfig.dataDir));
 
   const server = Fastify({
     logger: true,

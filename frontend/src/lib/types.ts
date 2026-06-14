@@ -16,6 +16,8 @@ export interface Instance {
   management_port: number;
   management_token: string;
   management_tls_enabled: boolean;
+  runtime_mode?: string;
+  docker_image?: string;
 }
 
 export interface ServerVersion {
@@ -49,10 +51,18 @@ export interface CreateInstanceInput {
   port?: number;
   downloadUrl?: string;
   javaPath?: string;
+  runtimeMode?: string;
+  dockerImage?: string;
 }
 
 export interface ModpackImportInput {
   url: string;
+}
+
+export interface PanelSettingsData {
+  host: string;
+  port: number;
+  allowedHosts: string[];
 }
 
 export interface PortCheckResult {

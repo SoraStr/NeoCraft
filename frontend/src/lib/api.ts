@@ -3,6 +3,7 @@ import type {
   FabricVersionMeta,
   Instance,
   JavaInstallation,
+  PanelSettingsData,
   PortCheckResult,
   ModInstallResult,
   ModMarketDetails,
@@ -167,6 +168,17 @@ function withQuery(path: string, params: Record<string, string | undefined>): st
   }
   const suffix = query.toString();
   return suffix ? `${path}?${suffix}` : path;
+}
+
+export async function getPanelSettings(): Promise<PanelSettingsData> {
+  return request<PanelSettingsData>('/panel-settings');
+}
+
+export async function updatePanelSettings(settings: PanelSettingsData): Promise<PanelSettingsData> {
+  return request<PanelSettingsData>('/panel-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
 }
 
 export async function getJavaVersions(): Promise<JavaInstallation[]> {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -70,6 +70,10 @@ export default function Dashboard() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [portConflict, setPortConflict] = useState<{ id: string; result: PortCheckResult } | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchInstances();
+  }, [fetchInstances]);
 
   const handleStartWithPortCheck = async (inst: { id: string; port: number }) => {
     setStartingId(inst.id);

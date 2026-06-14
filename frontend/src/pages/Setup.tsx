@@ -123,6 +123,8 @@ export default function Setup() {
   const [javaVersions, setJavaVersions] = useState<JavaInstallation[]>([]);
   const [javaDetecting, setJavaDetecting] = useState(false);
   const [showJvmDialog, setShowJvmDialog] = useState(false);
+  const [useDocker, setUseDocker] = useState(false);
+  const [dockerImage, setDockerImage] = useState('itzg/minecraft-server:latest');
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -339,7 +341,7 @@ export default function Setup() {
         const base = import.meta.env.VITE_API_HOST ? `${import.meta.env.VITE_API_HOST}/api` : '/api';
         fetch(`${base}/instances/${instance.id}/mods/scan`, { method: 'POST' }).catch(() => {});
       } else {
-        await createInstance(name || 'My Server', serverType, selectedVersion?.id || '', port, resolvedUrl, javaPath || undefined);
+        await createInstance(name || 'My Server', serverType, selectedVersion?.id || '', port, resolvedUrl, javaPath || undefined, useDocker ? 'docker' : 'process', useDocker ? dockerImage : undefined);
       }
       setDownloadProgress(null);
       navigate('/');
@@ -880,6 +882,42 @@ export default function Setup() {
               />
             </div>
           </div>
+
+          {/* Docker mode */}
+          {serverType !== 'custom' && serverType !== ('modpack' as ServerType) && (
+            <div className="p-4 rounded-lg bg-app-surface border border-app-border">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useDocker}
+                  onChange={(e) => setUseDocker(e.target.checked)}
+                  className="w-4 h-4 rounded accent-app-accent"
+                />
+                <div>
+                  <span className="text-sm font-medium text-app-text">
+                    {t('setup.dockerMode') || 'Docker 容器模式'}
+                  </span>
+                  <p className="text-xs text-app-text-muted mt-0.5">
+                    {t('setup.dockerModeHint') || '使用 Docker 容器运行 Minecraft 服务端，需系统已安装 Docker'}
+                  </p>
+                </div>
+              </label>
+              {useDocker && (
+                <div className="mt-3 ml-7">
+                  <label className="block text-xs font-medium text-app-text mb-1">
+                    {t('setup.dockerImage') || 'Docker 镜像'}
+                  </label>
+                  <input
+                    type="text"
+                    value={dockerImage}
+                    onChange={(e) => setDockerImage(e.target.value)}
+                    placeholder="itzg/minecraft-server:latest"
+                    className="w-full px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent outline-none text-sm font-mono text-app-text transition-colors"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Summary */}
           <div className="mt-6 p-4 rounded-lg bg-app-border-light border border-app-border">

@@ -15,7 +15,7 @@ interface InstanceStore {
   // Actions
   fetchInstances: () => Promise<void>;
   setDownloadProgress: (progress: DownloadProgress | null) => void;
-  createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string, javaPath?: string) => Promise<Instance>;
+  createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string, javaPath?: string, runtimeMode?: string, dockerImage?: string) => Promise<Instance>;
   importInstance: (name: string, sourceDir: string, port?: number, javaArgs?: string, javaPath?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
   startInstance: (id: string) => Promise<void>;
@@ -46,8 +46,8 @@ export const useInstanceStore = create<InstanceStore>((set) => ({
     }
   },
 
-  createInstance: async (name, type, version, port, downloadUrl, javaPath) => {
-    const instance = await api.createInstance({ name, type: type as any, version, port, downloadUrl, javaPath });
+  createInstance: async (name, type, version, port, downloadUrl, javaPath, runtimeMode, dockerImage) => {
+    const instance = await api.createInstance({ name, type: type as any, version, port, downloadUrl, javaPath, runtimeMode, dockerImage });
     set((state) => ({ instances: [...state.instances, instance] }));
     return instance;
   },

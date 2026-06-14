@@ -24,6 +24,7 @@ function suppressWsProxyErrors() {
 export default defineConfig({
   plugins: [react(), tailwindcss(), suppressWsProxyErrors()],
   server: {
+    host: '127.0.0.1',
     port: 1145,
     proxy: {
       '/api': {

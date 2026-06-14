@@ -353,6 +353,35 @@ export default function Config() {
                     })()}
                   </div>
                 )}
+                {instance && (
+                  <div className="p-4 rounded-lg bg-app-surface border border-app-border">
+                    <label className="block text-sm font-semibold text-app-text mb-1.5">
+                      {t('config.runtimeMode') || '运行模式'}
+                    </label>
+                    <select
+                      value={merged['runtime_mode'] ?? 'process'}
+                      onChange={(e) => handleChange('runtime_mode', e.target.value)}
+                      className="w-full px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent outline-none text-sm text-app-text transition-colors"
+                    >
+                      <option value="process">{t('config.runtimeProcess') || '本地进程'}</option>
+                      <option value="docker">{t('config.runtimeDocker') || 'Docker 容器'}</option>
+                    </select>
+                    {merged['runtime_mode'] === 'docker' && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-app-text mb-1">
+                          {t('config.dockerImage') || 'Docker 镜像'}
+                        </label>
+                        <input
+                          type="text"
+                          value={merged['docker_image'] ?? 'itzg/minecraft-server:latest'}
+                          onChange={(e) => handleChange('docker_image', e.target.value)}
+                          placeholder="itzg/minecraft-server:latest"
+                          className="w-full px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent outline-none text-sm font-mono text-app-text transition-colors"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Properties table */}

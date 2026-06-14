@@ -55,6 +55,20 @@ pub struct Instance {
     pub management_keystore_password: String,
     #[serde(default)]
     pub management_tls_enabled: bool,
+    /// Runtime mode: "process" (default) or "docker"
+    #[serde(default = "default_runtime_mode")]
+    pub runtime_mode: String,
+    /// Docker image for containerised servers
+    #[serde(default = "default_docker_image")]
+    pub docker_image: String,
+}
+
+fn default_runtime_mode() -> String {
+    "process".into()
+}
+
+fn default_docker_image() -> String {
+    "itzg/minecraft-server:latest".into()
 }
 
 fn default_java_path() -> String {
@@ -139,6 +153,8 @@ impl InstanceManager {
         port: u16,
         download_url: String,
         java_path: Option<String>,
+        runtime_mode: Option<String>,
+        docker_image: Option<String>,
     ) -> Result<Instance, InstanceError> {
         let management_port = management::management_port(&version, port)
             .map_err(|e| InstanceError::PortUnavailable(e.to_string()))?;
@@ -212,6 +228,8 @@ impl InstanceManager {
             management_token: management_settings.token,
             management_keystore_password: management_settings.keystore_password,
             management_tls_enabled: management_settings.tls_enabled,
+            runtime_mode: runtime_mode.unwrap_or_else(|| "process".into()),
+            docker_image: docker_image.unwrap_or_else(|| "itzg/minecraft-server:latest".into()),
         };
 
         // Persist instance state to disk
@@ -349,6 +367,8 @@ impl InstanceManager {
             management_token: management_settings.token,
             management_keystore_password: management_settings.keystore_password,
             management_tls_enabled: management_settings.tls_enabled,
+            runtime_mode: "process".into(),
+            docker_image: "itzg/minecraft-server:latest".into(),
         };
 
         // Persist instance state to disk
@@ -460,6 +480,7 @@ impl InstanceManager {
         id: &str,
         java_args: Option<String>,
         java_path: Option<String>,
+        port: Option<u16>,
     ) -> Result<(), InstanceError> {
         let mut map = self.instances.write().await;
         let inst = map
@@ -471,10 +492,51 @@ impl InstanceManager {
         if let Some(ref p) = java_path {
             inst.java_path = p.clone();
         }
+        if let Some(p) = port {
+            let old_port = inst.port;
+            inst.port = p;
+            // Also update management port: new = server_port + 100
+            if inst.management_port != 0 {
+                let new_mgmt = p.saturating_add(100);
+                inst.management_port = new_mgmt;
+                // Update server.properties management port
+                let props_path = inst.work_dir.join("server.properties");
+                let mut props = crate::files::read_properties(&props_path)
+                    .await
+                    .map_err(|e| InstanceError::ConfigError(e.to_string()))?;
+                props.insert("management-server-port".into(), new_mgmt.to_string());
+                crate::files::write_properties(&props_path, &props)
+                    .await
+                    .map_err(|e| InstanceError::ConfigError(e.to_string()))?;
+                tracing::info!(instance_id = %id, old_port, new_port = p, "Instance port updated");
+            }
+        }
         // Persist updated instance to disk
         let json = serde_json::to_string_pretty(&*inst)?;
         tokio::fs::write(inst.work_dir.join("instance.json"), json).await?;
         tracing::info!(instance_id = %id, "Instance config persisted to disk");
+        Ok(())
+    }
+
+    /// Update Docker-related configuration for an instance (runtime mode, image).
+    pub async fn update_docker_config(
+        &self,
+        id: &str,
+        runtime_mode: Option<String>,
+        docker_image: Option<String>,
+    ) -> Result<(), InstanceError> {
+        let mut map = self.instances.write().await;
+        let inst = map
+            .get_mut(id)
+            .ok_or_else(|| InstanceError::NotFound(id.into()))?;
+        if let Some(m) = runtime_mode {
+            inst.runtime_mode = m;
+        }
+        if let Some(img) = docker_image {
+            inst.docker_image = img;
+        }
+        let json = serde_json::to_string_pretty(&*inst)?;
+        tokio::fs::write(inst.work_dir.join("instance.json"), json).await?;
         Ok(())
     }
 
@@ -507,7 +569,7 @@ impl InstanceManager {
     /// concurrent start requests from double-spawning the process. The lock is
     /// dropped before the slow EULA check and process spawn.
     pub async fn start(&self, id: &str) -> Result<(), InstanceError> {
-        let (jar_path, work_dir, server_type, java_args, java_path) = {
+        let (jar_path, work_dir, server_type, java_args, java_path, runtime_mode, _docker_image) = {
             let mut map = self.instances.write().await;
             let inst = map
                 .get_mut(id)
@@ -527,6 +589,8 @@ impl InstanceManager {
                 inst.server_type.clone(),
                 inst.java_args.clone(),
                 inst.java_path.clone(),
+                inst.runtime_mode.clone(),
+                inst.docker_image.clone(),
             )
         };
 
@@ -552,17 +616,120 @@ impl InstanceManager {
         }
 
         // Build and run the command
-        let (java_bin, java_args_vec) =
-            build_java_command(&java_path, &jar_path, &server_type, &java_args);
-        let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
-
-        match self.start_process(id, &java_bin, &args_refs).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
+        if runtime_mode == "docker" {
+            // Docker mode: use docker run instead of java process
+            let inst = {
+                let map = self.instances.read().await;
+                map.get(id).cloned()
+            };
+            if let Some(inst) = inst {
+                let mut cmd = crate::docker::build_docker_command(&inst);
+                match self.start_process_with_cmd(id, &mut cmd).await {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        self.transition_state(id, InstanceState::Crashed).await;
+                        Err(error)
+                    }
+                }
+            } else {
                 self.transition_state(id, InstanceState::Crashed).await;
-                Err(error)
+                Err(InstanceError::NotFound(id.into()))
+            }
+        } else {
+            let (java_bin, java_args_vec) =
+                build_java_command(&java_path, &jar_path, &server_type, &java_args);
+            let args_refs: Vec<&str> = java_args_vec.iter().map(|s| s.as_str()).collect();
+
+            match self.start_process(id, &java_bin, &args_refs).await {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    self.transition_state(id, InstanceState::Crashed).await;
+                    Err(error)
+                }
             }
         }
+    }
+
+    /// Start a pre-built command (used for Docker mode where the command is already configured).
+    async fn start_process_with_cmd(
+        &self,
+        id: &str,
+        cmd: &mut TokioCommand,
+    ) -> Result<(), InstanceError> {
+        let work_dir = {
+            let map = self.instances.read().await;
+            let inst = map.get(id).unwrap();
+            inst.work_dir.clone()
+        };
+        cmd.current_dir(&work_dir);
+        cmd.kill_on_drop(true);
+        let mut child = cmd.spawn()?;
+
+        let stdout = child.stdout.take().expect("stdout pipe");
+        let stderr = child.stderr.take().expect("stderr pipe");
+
+        self.transition_state(id, InstanceState::Running).await;
+
+        let stdin = child.stdin.take();
+        if let Some(s) = stdin {
+            self.stdins.lock().await.insert(id.to_string(), s);
+        }
+
+        self.transition_state(id, InstanceState::Running).await;
+
+        // Pipe logs
+        let log_pipe = LogPipe::new(id.to_string(), self.event_tx.clone());
+        tokio::spawn(async move {
+            log_pipe.pipe_both(stdout, stderr).await;
+        });
+
+        let (kill_tx, kill_rx) = oneshot::channel::<()>();
+        self.process_killers
+            .lock()
+            .await
+            .insert(id.to_string(), kill_tx);
+
+        // Background exit monitor
+        {
+            let instances = Arc::clone(&self.instances);
+            let process_killers = Arc::clone(&self.process_killers);
+            let stdins = Arc::clone(&self.stdins);
+            let event_tx = self.event_tx.clone();
+            let id_str = id.to_string();
+            tokio::spawn(async move {
+                let exit_state = tokio::select! {
+                    status = child.wait() => match status {
+                        Ok(exit) if exit.success() => InstanceState::Stopped,
+                        _ => InstanceState::Crashed,
+                    },
+                    _ = kill_rx => {
+                        match child.kill().await {
+                            Ok(()) => {
+                                let _ = child.wait().await;
+                                InstanceState::Stopped
+                            }
+                            Err(_) => InstanceState::Crashed,
+                        }
+                    }
+                };
+                // Cleanup
+                process_killers.lock().await.remove(&id_str);
+                stdins.lock().await.remove(&id_str);
+                // Transition and broadcast
+                {
+                    let mut map = instances.write().await;
+                    if let Some(inst) = map.get_mut(&id_str) {
+                        inst.state = exit_state.clone();
+                    }
+                }
+                let _ = event_tx.send(Event::InstanceStateChange {
+                    instance_id: id_str,
+                    state: exit_state,
+                });
+            });
+        }
+
+        Ok(())
     }
 
     /// Low-level process spawn with error capture.
@@ -682,12 +849,12 @@ impl InstanceManager {
     /// Waits for the process to exit (with a 60s timeout, then force-kill).
     /// No-op if the instance is not running.
     pub async fn stop(&self, id: &str) -> Result<(), InstanceError> {
-        let state = {
+        let (state, is_docker) = {
             let map = self.instances.read().await;
             let instance = map
                 .get(id)
                 .ok_or_else(|| InstanceError::NotFound(id.into()))?;
-            instance.state.clone()
+            (instance.state.clone(), instance.runtime_mode == "docker")
         };
 
         // No-op for non-running instances
@@ -697,11 +864,39 @@ impl InstanceManager {
 
         self.transition_state(id, InstanceState::Stopping).await;
 
-        // Send stop command via stdin — the exit monitor handles the rest
-        {
-            let mut stdins = self.stdins.lock().await;
-            if let Some(mut stdin) = stdins.remove(id) {
-                let _ = stdin.write_all(b"stop\n").await;
+        if is_docker {
+            // Docker mode: use docker stop
+            let inst = {
+                let map = self.instances.read().await;
+                map.get(id).cloned()
+            };
+            if let Some(inst) = inst {
+                let container_name = format!("neocraft-{}", &inst.id[..8].to_string());
+                // Issue docker stop with timeout
+                let _ = TokioCommand::new("docker")
+                    .arg("stop")
+                    .arg("-t")
+                    .arg("30")
+                    .arg(&container_name)
+                    .output()
+                    .await;
+                // Remove container (--rm flag in run should handle this, but just in case)
+                let _ = TokioCommand::new("docker")
+                    .arg("rm")
+                    .arg("-f")
+                    .arg(&container_name)
+                    .output()
+                    .await;
+                self.transition_state(id, InstanceState::Stopped).await;
+                return Ok(());
+            }
+        } else {
+            // Process mode: send stop command via stdin
+            {
+                let mut stdins = self.stdins.lock().await;
+                if let Some(mut stdin) = stdins.remove(id) {
+                    let _ = stdin.write_all(b"stop\n").await;
+                }
             }
         }
 
@@ -804,4 +999,6 @@ pub enum InstanceError {
     Download(String),
     #[error("JAR read error: {0}")]
     JarRead(String),
+    #[error("Config error: {0}")]
+    ConfigError(String),
 }

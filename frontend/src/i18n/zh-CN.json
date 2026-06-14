@@ -10,6 +10,7 @@
     "console": "控制台",
     "config": "配置",
     "manage": "管理",
+    "settings": "面板设置",
     "about": "关于"
   },
   "status": {
@@ -125,6 +126,9 @@
     "javaCompatible": "与 Minecraft 兼容",
     "javaWarn": "可能不兼容，建议升级 Java 版本。",
     "javaBad": "不兼容，请升级 Java 版本。",
+    "dockerMode": "Docker 容器模式",
+    "dockerModeHint": "使用 Docker 容器运行 Minecraft 服务端，需系统已安装 Docker",
+    "dockerImage": "Docker 镜像",
     "presetLow": "低配",
     "presetMedium": "中配",
     "presetHigh": "高配",
@@ -138,6 +142,21 @@
     "jvmCatG1": "G1 调优",
     "jvmCatPerf": "性能",
     "jvmCatDebug": "调试"
+  },
+  "panelSettings": {
+    "title": "面板设置",
+    "desc": "修改监听地址、端口和允许访问的域名。部分设置需要重启服务后生效。",
+    "host": "监听地址",
+    "hostHint": "选择 0.0.0.0 以允许局域网内其他设备访问面板。",
+    "localOnly": "仅本机",
+    "allInterfaces": "所有网络接口",
+    "port": "端口",
+    "portHint": "API 服务端监听端口，默认 3001。修改后需重启服务。",
+    "allowedHosts": "允许访问的域名",
+    "allowedHostsHint": "允许通过开发服务器访问的域名（仅开发模式生效）。",
+    "noHosts": "暂未添加域名。仅允许本机访问。",
+    "add": "添加",
+    "save": "保存设置"
   },
   "portConflict": {
     "title": "端口已被占用",
@@ -153,6 +172,12 @@
   "console": {
     "title": "控制台",
     "notFound": "服务器未找到",
+    "searchPlaceholder": "搜索日志...",
+    "caseSensitive": "区分大小写",
+    "useRegex": "正则表达式",
+    "noMatches": "无匹配日志",
+    "matchCount": "{count} 行匹配",
+    "invalidRegex": "无效的正则表达式",
     "backToDashboard": "返回仪表盘",
     "waitingOutput": "等待服务器输出...",
     "commandPlaceholder": "输入命令...",
@@ -185,6 +210,10 @@
     "loading": "正在加载配置...",
     "javaArgs": "Java 参数",
     "javaPath": "Java 路径",
+    "runtimeMode": "运行模式",
+    "runtimeProcess": "本地进程",
+    "runtimeDocker": "Docker 容器",
+    "dockerImage": "Docker 镜像",
     "instanceSettings": "实例设置",
     "serverProperties": "服务器属性",
     "noProperties": "没有可显示的属性",

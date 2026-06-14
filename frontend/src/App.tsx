@@ -7,6 +7,7 @@ import Console from './pages/Console';
 import Config from './pages/Config';
 import Management from './pages/Management';
 import About from './pages/About';
+import PanelSettings from './pages/Settings';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
               <Route path="/config/:id" element={<Config />} />
               <Route path="/manage/:id" element={<Management />} />
               <Route path="/about" element={<About />} />
+              <Route path="/settings" element={<PanelSettings />} />
             </Routes>
           </main>
         </div>

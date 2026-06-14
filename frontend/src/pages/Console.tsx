@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Send, Terminal } from 'lucide-react';
+import { ArrowLeft, Send, Terminal, Search, X, CaseSensitive, Regex } from 'lucide-react';
 import { useInstanceStore } from '../stores/instanceStore';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { sendCommand } from '../lib/api';
@@ -31,18 +31,82 @@ export default function Console() {
   const [history, setHistory] = useState<string[]>(loadHistory);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [sending, setSending] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const loading = useInstanceStore((s) => s.loading);
   const instance = instances.find((i) => i.id === id);
   const instanceLogs = id ? logs[id] || [] : [];
   const isRunning = instance?.state === 'running';
 
+  // Filter and highlight logs
+  const { filteredLogs, matchCount } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      setSearchError(null);
+      return { filteredLogs: instanceLogs, matchCount: null };
+    }
+
+    let pattern: RegExp;
+    try {
+      const flags = caseSensitive ? 'g' : 'gi';
+      pattern = useRegex
+        ? new RegExp(searchQuery, flags)
+        : new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+      setSearchError(null);
+    } catch {
+      setSearchError(t('console.invalidRegex') || '无效的正则表达式');
+      return { filteredLogs: instanceLogs, matchCount: null };
+    }
+
+    let count = 0;
+    const filtered = instanceLogs.filter((entry) => {
+      const match = entry.line.match(pattern);
+      if (match) count += match.length;
+      return match !== null;
+    });
+    return { filteredLogs: filtered, matchCount: count };
+  }, [instanceLogs, searchQuery, caseSensitive, useRegex, t]);
+
+  // Highlight matching text
+  const highlightLine = (line: string): React.ReactNode => {
+    if (!searchQuery.trim() || searchError) return line;
+
+    let pattern: RegExp;
+    try {
+      const flags = caseSensitive ? 'g' : 'gi';
+      pattern = useRegex
+        ? new RegExp(`(${searchQuery})`, flags)
+        : new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, flags);
+    } catch {
+      return line;
+    }
+
+    // Build a non-global test pattern for checking parts
+    const testFlags = caseSensitive ? '' : 'i';
+    const testPattern = useRegex
+      ? new RegExp(`^${searchQuery}$`, testFlags)
+      : new RegExp(`^${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, testFlags);
+
+    const parts = line.split(pattern);
+    return parts.map((part, i) =>
+      testPattern.test(part) ? (
+        <mark key={i} className="bg-yellow-300/40 dark:bg-yellow-500/30 text-inherit rounded-sm px-0.5">
+          {part}
+        </mark>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    );
+  };
+
   if (loading) return <LoadingSkeleton lines={6} />;
 
   useEffect(() => {
     const el = logContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [instanceLogs.length]);
+  }, [filteredLogs.length]);
 
   const handleSend = async () => {
     const command = cmd.trim();
@@ -117,21 +181,70 @@ export default function Console() {
         </span>
       </div>
 
+      {/* Search bar */}
+      <div className="flex items-center gap-2 mb-3 flex-shrink-0">
+        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-app-input border border-app-border focus-within:border-app-accent transition-colors">
+          <Search className="w-4 h-4 text-app-text-muted flex-shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchError(null); }}
+            placeholder={t('console.searchPlaceholder') || '搜索日志...'}
+            className="flex-1 bg-transparent outline-none text-sm text-app-text placeholder:text-app-text-muted"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-app-text-muted hover:text-app-text transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={() => setCaseSensitive(!caseSensitive)}
+          title={t('console.caseSensitive') || '区分大小写'}
+          className={`p-2 rounded-md transition-colors ${
+            caseSensitive ? 'bg-app-accent-bg text-app-accent border border-app-accent' : 'bg-app-input border border-app-border text-app-text-muted hover:text-app-text'
+          }`}
+        >
+          <CaseSensitive className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setUseRegex(!useRegex)}
+          title={t('console.useRegex') || '正则表达式'}
+          className={`p-2 rounded-md transition-colors ${
+            useRegex ? 'bg-app-accent-bg text-app-accent border border-app-accent' : 'bg-app-input border border-app-border text-app-text-muted hover:text-app-text'
+          }`}
+        >
+          <Regex className="w-4 h-4" />
+        </button>
+        {searchError && (
+          <span className="text-xs text-app-red flex-shrink-0">{searchError}</span>
+        )}
+      </div>
+
       {/* Terminal output */}
       <div
         ref={logContainerRef}
         className="flex-1 overflow-y-auto rounded-lg bg-app-console-bg border border-app-border p-4 font-mono text-sm mb-3 console-output"
       >
-        {instanceLogs.length === 0 ? (
+        {filteredLogs.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-app-text-muted text-sm">{t('console.waitingOutput')}</p>
+            <p className="text-app-text-muted text-sm">
+              {searchQuery ? (t('console.noMatches') || '无匹配日志') : (t('console.waitingOutput'))}
+            </p>
           </div>
         ) : (
-          instanceLogs.map((entry, i) => (
-            <div key={i} className="text-app-console-text leading-relaxed whitespace-pre-wrap break-all">
-              {entry.line}
-            </div>
-          ))
+          <>
+            {matchCount !== null && (
+              <div className="text-xs text-app-text-muted mb-2 flex-shrink-0">
+                {t('console.matchCount')?.replace('{count}', String(filteredLogs.length)).replace('{matches}', String(matchCount)) || `${filteredLogs.length} 行匹配`}
+              </div>
+            )}
+            {filteredLogs.map((entry, i) => (
+              <div key={i} className="text-app-console-text leading-relaxed whitespace-pre-wrap break-all">
+                {highlightLine(entry.line)}
+              </div>
+            ))}
+          </>
         )}
       </div>
 

@@ -140,11 +140,13 @@ impl DaemonHandler {
         let port = optional_port(params, "port")?.unwrap_or(25565);
         let download_url = optional_string(params, "download_url").unwrap_or_default();
         let java_path = optional_string(params, "java_path");
+        let runtime_mode = optional_string(params, "runtime_mode");
+        let docker_image = optional_string(params, "docker_image");
         let server_type = parse_server_type(params.get("type"))?.unwrap_or(ServerType::Paper);
 
         let instance = self
             .manager
-            .create(name, server_type, version, port, download_url, java_path)
+            .create(name, server_type, version, port, download_url, java_path, runtime_mode, docker_image)
             .await
             .map_err(|error| instance_error("CREATE_ERROR", error))?;
 
@@ -200,21 +202,43 @@ impl DaemonHandler {
         let mut props = std::collections::HashMap::new();
         let mut java_args = None;
         let mut java_path = None;
+        let mut server_port = None;
+        let mut runtime_mode = None;
+        let mut docker_image = None;
 
         for (key, value) in props_obj {
             let value = value.as_str().unwrap_or("").to_string();
             match key.as_str() {
                 "java_args" => java_args = Some(value),
                 "java_path" => java_path = Some(value),
+                "runtime_mode" => runtime_mode = Some(value),
+                "docker_image" => docker_image = Some(value),
+                "server-port" => {
+                    server_port = Some(value.clone());
+                    props.insert(key.clone(), value);
+                }
                 _ => {
                     props.insert(key.clone(), value);
                 }
             }
         }
 
-        if java_args.is_some() || java_path.is_some() {
+        // Parse server port if provided
+        let parsed_port: Option<u16> = server_port
+            .and_then(|p| p.parse::<u16>().ok())
+            .filter(|p| *p > 0);
+
+        if java_args.is_some() || java_path.is_some() || parsed_port.is_some() {
             self.manager
-                .update_config(&instance_id, java_args, java_path)
+                .update_config(&instance_id, java_args, java_path, parsed_port)
+                .await
+                .map_err(|error| instance_error("CONFIG_ERROR", error))?;
+        }
+
+        // Update runtime_mode and docker_image
+        if runtime_mode.is_some() || docker_image.is_some() {
+            self.manager
+                .update_docker_config(&instance_id, runtime_mode, docker_image)
                 .await
                 .map_err(|error| instance_error("CONFIG_ERROR", error))?;
         }
