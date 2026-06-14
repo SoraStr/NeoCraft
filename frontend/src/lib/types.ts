@@ -51,6 +51,82 @@ export interface CreateInstanceInput {
   javaPath?: string;
 }
 
+export interface ModpackImportInput {
+  url: string;
+}
+
+export interface PortCheckResult {
+  port: number;
+  available: boolean;
+  processName?: string;
+  processPid?: number;
+  suggestion?: number;
+}
+
+export interface JavaInstallation {
+  path: string;
+  version: string;
+  major_version: number;
+  vendor: string;
+}
+
+export interface ModpackImportResult extends Instance {
+  modpack: {
+    name: string;
+    version: string;
+    serverType: string;
+    totalMods: number;
+    installedMods: number;
+    failedMods: number;
+    failures: string[];
+  };
+}
+
+export interface ModpackSearchResult {
+  id: string;
+  name: string;
+  description: string;
+  iconUrl?: string;
+  author?: string;
+  downloads?: number;
+  likes?: number;
+  updatedAt?: string;
+  latestVersion?: string;
+  supportedVersions: string[];
+  pageUrl: string;
+}
+
+export interface ModpackDetails extends ModpackSearchResult {
+  body?: string;
+  links: Array<{ label: string; url: string }>;
+  license?: string;
+  categories: string[];
+}
+
+export interface ModpackVersionEntry {
+  id: string;
+  name: string;
+  downloads?: number;
+  releasedAt?: string;
+  supportedVersions: string[];
+  fileName?: string;
+  fileSize?: number;
+  downloadUrl?: string;
+}
+
+export interface DownloadProgress {
+  taskId: string;
+  percent: number;
+  downloaded: number;
+  total: number;
+  phase?: string;
+  status?: string;
+  modpack_done?: number;
+  modpack_total?: number;
+  modpack_installed?: number;
+  modpack_failed?: number;
+}
+
 export interface IpcEvent {
   event: string;
   data: Record<string, unknown>;

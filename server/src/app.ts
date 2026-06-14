@@ -13,6 +13,9 @@ import { modMarketRoutes } from './routes/mod-market.js';
 import { VersionService } from './services/version-service.js';
 import { PluginMarketService } from './services/plugin-market-service.js';
 import { ModMarketService } from './services/mod-market-service.js';
+import { ModpackService } from './services/modpack-service.js';
+import { ModpackMarketService } from './services/modpack-market-service.js';
+import { modpackMarketRoutes } from './routes/modpack-market.js';
 import { loadRuntimeConfig, loadAuthToken, type RuntimeOptions } from './config.js';
 import { DaemonRuntime } from './services/daemon-runtime.js';
 
@@ -35,7 +38,7 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
 
   const server = Fastify({
     logger: true,
-    bodyLimit: 140 * 1024 * 1024,
+    bodyLimit: 400 * 1024 * 1024,
     genReqId: () => `nc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   });
 
@@ -129,11 +132,14 @@ export async function buildApp(options: AppOptions = {}): Promise<AppInstance> {
   const versionService = new VersionService();
   const pluginMarketService = new PluginMarketService();
   const modMarketService = new ModMarketService();
-  await server.register(instanceRoutes, { ipc });
+  const modpackService = new ModpackService(versionService);
+  const modpackMarketService = new ModpackMarketService();
+  await server.register(instanceRoutes, { ipc, modpackService, versionService, wsHub });
   await server.register(configRoutes, { ipc });
   await server.register(versionRoutes, { versionService });
   await server.register(pluginMarketRoutes, { service: pluginMarketService, ipc });
   await server.register(modMarketRoutes, { service: modMarketService, ipc });
+  await server.register(modpackMarketRoutes, { service: modpackMarketService });
 
   if (existsSync(runtimeConfig.frontendDist)) {
     await server.register(fastifyStatic, {

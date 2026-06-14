@@ -2,6 +2,10 @@ import { type FastifyInstance, type FastifyPluginAsync } from 'fastify';
 import { IpcClient } from '../services/ipc-client.js';
 import { RconClient } from '../services/rcon-client.js';
 import { getMods, scanMods } from '../services/mod-service.js';
+import { ModpackService, sanitizeFileName } from '../services/modpack-service.js';
+import { VersionService } from '../services/version-service.js';
+import { checkPort } from '../services/port-check.js';
+import { WebSocketHub } from '../websocket/hub.js';
 import {
   assertCommand,
   assertInstanceId,
@@ -15,6 +19,9 @@ import {
 
 interface InstanceRouteOptions {
   ipc: IpcClient;
+  modpackService?: ModpackService;
+  versionService?: VersionService;
+  wsHub?: WebSocketHub;
 }
 
 type ServerType = 'vanilla' | 'paper' | 'spigot' | 'fabric' | 'forge' | 'custom';
@@ -113,6 +120,119 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
     }
   });
 
+  app.post('/api/instances/import-modpack', async (request, reply) => {
+    try {
+      const { modpackService, versionService } = opts;
+      if (!modpackService || !versionService) {
+        httpError(500, 'Modpack service not available.');
+      }
+
+      const body = request.body as { url?: string } | undefined;
+      const url = (body?.url || '').trim();
+      if (!url) {
+        httpError(400, 'Missing modpack URL.');
+      }
+
+      const info = await modpackService.fetchAndParse(url);
+      const { manifest, serverType, minecraftVersion, loaderVersion, installerVersion } = info;
+
+      // Resolve server JAR download URL
+      let downloadUrl: string;
+      if (serverType === 'fabric') {
+        downloadUrl = await versionService.resolveDownloadUrl(
+          'fabric', minecraftVersion, loaderVersion, installerVersion,
+        );
+      } else if (serverType === 'forge') {
+        // Forge modpacks: create a vanilla instance as base, mods will be added.
+        // The Forge installer must be run separately by the user.
+        downloadUrl = await versionService.resolveDownloadUrl('vanilla', minecraftVersion);
+      } else {
+        downloadUrl = await versionService.resolveDownloadUrl('vanilla', minecraftVersion);
+      }
+
+      const serverName = manifest.name || 'Modpack Server';
+      const port = optionalPort(undefined, 25565);
+
+      // Create the instance with the server JAR
+      const instance = await ipcCall(ipc, 'instance.create', {
+        name: serverName.slice(0, 64),
+        type: serverType === 'forge' ? 'forge' : serverType === 'fabric' ? 'fabric' : 'vanilla',
+        version: minecraftVersion,
+        port,
+        download_url: downloadUrl,
+        java_path: null,
+      }, 300000);
+
+      const instanceId = (instance as { id: string }).id;
+      if (!instanceId) {
+        throw new Error('Instance creation did not return an ID.');
+      }
+
+      // Download and install server-side mods
+      const serverFiles = modpackService.filterServerFiles(manifest.files);
+      const totalMods = serverFiles.length;
+      let installedMods = 0;
+      let failedMods = 0;
+      const failures: string[] = [];
+      const taskId = `modpack:${instanceId}`;
+
+      // Broadcast initial progress
+      broadcastProgress(opts.wsHub, taskId, 0, totalMods, 0, installedMods, failedMods, 'downloading_mods');
+
+      for (const file of serverFiles) {
+        const downloadUrl = file.downloads?.[0];
+        if (!downloadUrl || !modpackService.isTrustedDownloadUrl(downloadUrl)) {
+          failedMods += 1;
+          failures.push(`${file.path} (untrusted or missing URL)`);
+          broadcastProgress(opts.wsHub, taskId, installedMods + failedMods, totalMods, 0, installedMods, failedMods, 'downloading_mods');
+          continue;
+        }
+
+        try {
+          broadcastProgress(opts.wsHub, taskId, installedMods + failedMods, totalMods, 0, installedMods, failedMods, 'downloading_mods', file.path);
+
+          const modBytes = await modpackService.downloadMod(downloadUrl);
+          const fileName = sanitizeFileName(file.path);
+          const modDir = file.path.includes('/')
+            ? file.path.substring(0, file.path.lastIndexOf('/'))
+            : 'mods';
+          const targetPath = `${modDir}/${fileName}`;
+
+          await ipcCall(ipc, 'files.write', {
+            instance_id: instanceId,
+            path: targetPath,
+            data: Buffer.from(modBytes).toString('base64'),
+          }, 120000);
+
+          installedMods += 1;
+          broadcastProgress(opts.wsHub, taskId, installedMods + failedMods, totalMods, modBytes.length, installedMods, failedMods, 'downloading_mods', file.path);
+        } catch (err) {
+          failedMods += 1;
+          failures.push(`${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          broadcastProgress(opts.wsHub, taskId, installedMods + failedMods, totalMods, 0, installedMods, failedMods, 'downloading_mods', file.path);
+        }
+      }
+
+      // Final progress
+      broadcastProgress(opts.wsHub, taskId, totalMods, totalMods, 0, installedMods, failedMods, 'complete');
+
+      return reply.status(201).send({
+        ...instance as Record<string, unknown>,
+        modpack: {
+          name: manifest.name,
+          version: manifest.versionId,
+          serverType,
+          totalMods: serverFiles.length,
+          installedMods,
+          failedMods,
+          failures: failures.slice(0, 10),
+        },
+      });
+    } catch (error) {
+      return sendRouteError(reply, error, 'Modpack import failed');
+    }
+  });
+
   app.get('/api/instances/:id', async (request, reply) => {
     try {
       const id = routeId(request.params);
@@ -127,6 +247,17 @@ export const instanceRoutes: FastifyPluginAsync<InstanceRouteOptions> = async (
       const id = routeId(request.params);
       await ipcCall(ipc, 'instance.delete', { id });
       return reply.status(204).send();
+    } catch (error) {
+      return sendRouteError(reply, error);
+    }
+  });
+
+  app.post('/api/instances/:id/check-port', async (request, reply) => {
+    try {
+      const id = routeId(request.params);
+      const instance = await ipcCall<{ port: number }>(ipc, 'instance.get', { id });
+      const result = await checkPort(instance.port);
+      return result;
     } catch (error) {
       return sendRouteError(reply, error);
     }
@@ -296,4 +427,34 @@ function assertText(value: string | undefined, missingMessage: string): string {
     httpError(400, missingMessage);
   }
   return value;
+}
+
+function broadcastProgress(
+  wsHub: WebSocketHub | undefined,
+  taskId: string,
+  downloaded: number,
+  total: number,
+  bytes: number,
+  installed: number,
+  failed: number,
+  phase: string,
+  currentFile?: string,
+): void {
+  if (!wsHub) return;
+  const percent = total > 0 ? Math.round((downloaded / total) * 100) : 0;
+  wsHub.broadcast({
+    event: 'download.progress',
+    data: {
+      task_id: taskId,
+      downloaded: bytes,
+      total: 0,
+      percent,
+      phase,
+      status: currentFile,
+      modpack_installed: installed,
+      modpack_failed: failed,
+      modpack_total: total,
+      modpack_done: downloaded,
+    },
+  });
 }

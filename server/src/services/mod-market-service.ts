@@ -81,7 +81,7 @@ const MODRINTH_SITE = 'https://modrinth.com/mod';
 const USER_AGENT = 'NeoCraft/0.1 (Mod Market)';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
-const MAX_MOD_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_MOD_DOWNLOAD_BYTES = 240 * 1024 * 1024;
 const MODRINTH_CDN_HOST = 'cdn.modrinth.com';
 
 export class ModMarketService {
@@ -219,12 +219,12 @@ export class ModMarketService {
 
     const length = Number.parseInt(res.headers.get('content-length') || '', 10);
     if (Number.isFinite(length) && length > MAX_MOD_DOWNLOAD_BYTES) {
-      throw new Error('Mod file is too large (max 100 MB).');
+      throw new Error('Mod file is too large (max 240 MB).');
     }
 
     const buffer = Buffer.from(await res.arrayBuffer());
     if (buffer.length > MAX_MOD_DOWNLOAD_BYTES) {
-      throw new Error('Mod file is too large (max 100 MB).');
+      throw new Error('Mod file is too large (max 240 MB).');
     }
     if (buffer.length === 0) {
       throw new Error('Mod download was empty.');

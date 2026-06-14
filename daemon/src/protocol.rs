@@ -51,6 +51,8 @@ pub enum Method {
     FilesRename,
     #[serde(rename = "files.read")]
     FilesRead,
+    #[serde(rename = "java.detect")]
+    JavaDetect,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ pub mod files;
 pub mod detect;
 pub mod handler;
 pub mod java_args;
+pub mod java_detect;
 pub mod management;
 pub mod paths;
 pub mod util;

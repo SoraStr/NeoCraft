@@ -8,19 +8,23 @@ import {
    Download,
    AlertTriangle,
   Loader2,
+  Search,
   Server,
   Box,
   Blocks,
   Flame,
   Puzzle,
   FolderInput,
+  PackageOpen,
+  ExternalLink,
 } from 'lucide-react';
 import { useInstanceStore } from '../stores/instanceStore';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { getVersions, resolveDownloadUrl, getFabricLoaderVersions, getFabricInstallerVersions } from '../lib/api';
-import type { ServerType, ServerVersion, FabricVersionMeta, IpcEvent } from '../lib/types';
+import { getVersions, resolveDownloadUrl, getFabricLoaderVersions, getFabricInstallerVersions, importModpack, searchModpackMarket, getModpackMarketVersions, getJavaVersions } from '../lib/api';
+import type { ServerType, ServerVersion, FabricVersionMeta, IpcEvent, ModpackImportResult, ModpackSearchResult, ModpackVersionEntry, JavaInstallation } from '../lib/types';
+import { JvmArgsDialog } from '../components/config/JvmArgsDialog';
 
-function TypeIcon({ type }: { type: ServerType }) {
+function TypeIcon({ type }: { type: ServerType | 'modpack' }) {
   const cls = 'w-5 h-5';
   switch (type) {
     case 'paper': return <Blocks className={cls} />;
@@ -29,11 +33,40 @@ function TypeIcon({ type }: { type: ServerType }) {
     case 'fabric': return <Puzzle className={cls} />;
     case 'forge': return <Flame className={cls} />;
     case 'custom': return <FolderInput className={cls} />;
+    case 'modpack': return <PackageOpen className={cls} />;
     default: return <Server className={cls} />;
   }
 }
 
-function typeBadgeColors(type: ServerType) {
+interface JavaPreset {
+  key: string;
+  labelKey: string;
+  description: string;
+  args: string;
+}
+
+const JAVA_PRESETS: JavaPreset[] = [
+  {
+    key: 'low',
+    labelKey: 'setup.presetLow',
+    description: '2G 内存 · 2人',
+    args: '-Xmx2G -Xms1G -XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20',
+  },
+  {
+    key: 'medium',
+    labelKey: 'setup.presetMedium',
+    description: '4G 内存 · 10人',
+    args: '-Xmx4G -Xms2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled',
+  },
+  {
+    key: 'high',
+    labelKey: 'setup.presetHigh',
+    description: '8G 内存 · 50人',
+    args: '-Xmx8G -Xms4G -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90',
+  },
+];
+
+function typeBadgeColors(type: ServerType | 'modpack') {
   switch (type) {
     case 'paper': return 'text-badge-paper bg-badge-paper-bg';
     case 'vanilla': return 'text-badge-vanilla bg-badge-vanilla-bg';
@@ -41,6 +74,7 @@ function typeBadgeColors(type: ServerType) {
     case 'fabric': return 'text-badge-fabric bg-badge-fabric-bg';
     case 'forge': return 'text-badge-fabric bg-badge-fabric-bg';
     case 'custom': return 'text-badge-custom bg-badge-custom-bg';
+    case 'modpack': return 'text-badge-fabric bg-badge-fabric-bg';
   }
 }
 
@@ -78,8 +112,52 @@ export default function Setup() {
   const [sourceDir, setSourceDir] = useState('');
   const [javaArgs, setJavaArgs] = useState('');
   const [javaPath, setJavaPath] = useState('');
+  const [modpackUrl, setModpackUrl] = useState('');
+  const [modpackResult, setModpackResult] = useState<ModpackImportResult | null>(null);
+  const [modpackSearchQuery, setModpackSearchQuery] = useState('');
+  const [modpackSearchResults, setModpackSearchResults] = useState<ModpackSearchResult[]>([]);
+  const [modpackSearching, setModpackSearching] = useState(false);
+  const [modpackSelected, setModpackSelected] = useState<ModpackSearchResult | null>(null);
+  const [modpackVersions, setModpackVersions] = useState<ModpackVersionEntry[]>([]);
+  const [modpackLoadingVersions, setModpackLoadingVersions] = useState(false);
+  const [javaVersions, setJavaVersions] = useState<JavaInstallation[]>([]);
+  const [javaDetecting, setJavaDetecting] = useState(false);
+  const [showJvmDialog, setShowJvmDialog] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  const handleDetectJava = async () => {
+    setJavaDetecting(true);
+    try {
+      const versions = await getJavaVersions();
+      setJavaVersions(versions);
+    } catch {
+      setJavaVersions([]);
+    } finally {
+      setJavaDetecting(false);
+    }
+  };
+
+  const javaCompatibility = (major: number, mcVersion?: string) => {
+    if (!mcVersion) return 'ok';
+    const parts = mcVersion.split('.').map(Number);
+    const mcMajor = parts[0] || 0;
+    const mcMinor = parts[1] || 0;
+    // Java 21 required for MC 1.20.5+
+    if ((mcMajor === 1 && mcMinor >= 21) || mcMajor >= 2) {
+      return major >= 21 ? 'ok' : major >= 17 ? 'warn' : 'bad';
+    }
+    // Java 17 required for MC 1.18+
+    if ((mcMajor === 1 && mcMinor >= 18) || mcMajor >= 2) {
+      return major >= 17 ? 'ok' : major >= 11 ? 'warn' : 'bad';
+    }
+    // MC 1.17+ need Java 16+
+    if ((mcMajor === 1 && mcMinor >= 17)) {
+      return major >= 17 ? 'ok' : major >= 16 ? 'warn' : 'bad';
+    }
+    // MC 1.16.5 and below: Java 8+
+    return major >= 8 ? 'ok' : 'bad';
+  };
 
   const SERVER_TYPES = useMemo(() => [
     { value: 'paper' as ServerType, label: t('setup.paper'), desc: t('setup.paperDesc'), icon: 'paper' },
@@ -87,6 +165,7 @@ export default function Setup() {
     { value: 'spigot' as ServerType, label: t('setup.spigot'), desc: t('setup.spigotDesc'), icon: 'spigot' },
     { value: 'fabric' as ServerType, label: t('setup.fabric'), desc: t('setup.fabricDesc'), icon: 'fabric' },
     { value: 'custom' as ServerType, label: t('setup.custom'), desc: t('setup.customDesc'), icon: 'custom' },
+    { value: 'modpack' as ServerType, label: t('setup.modpack') || '模组包', desc: t('setup.modpackDesc') || '从 Modrinth 模组包链接一键导入', icon: 'modpack' },
   ], [t]);
 
   useEffect(() => {
@@ -99,6 +178,10 @@ export default function Setup() {
           total: event.data.total as number,
           phase: event.data.phase as string | undefined,
           status: event.data.status as string | undefined,
+          modpack_done: event.data.modpack_done as number | undefined,
+          modpack_total: event.data.modpack_total as number | undefined,
+          modpack_installed: event.data.modpack_installed as number | undefined,
+          modpack_failed: event.data.modpack_failed as number | undefined,
         });
       }
     });
@@ -128,6 +211,8 @@ export default function Setup() {
     setFabricInstaller('');
     if (type === 'custom') {
       setStep(3);
+    } else if (type === 'modpack' as ServerType) {
+      setStep(2);
     } else {
       fetchVersions(type);
       if (type === 'fabric') {
@@ -169,6 +254,70 @@ export default function Setup() {
       setVersionError(err instanceof Error ? err.message : t('setup.resolveFailed'));
     } finally {
       setResolvingUrl(false);
+    }
+  };
+
+  const handleModpackSearch = async () => {
+    if (!modpackSearchQuery.trim() || modpackSearchQuery.trim().length < 2) return;
+    setModpackSearching(true);
+    setModpackSelected(null);
+    setModpackVersions([]);
+    try {
+      const results = await searchModpackMarket(modpackSearchQuery.trim());
+      setModpackSearchResults(results);
+    } catch {
+      setModpackSearchResults([]);
+    } finally {
+      setModpackSearching(false);
+    }
+  };
+
+  const handleSelectModpack = async (item: ModpackSearchResult) => {
+    setModpackSelected(item);
+    setModpackLoadingVersions(true);
+    try {
+      const versions = await getModpackMarketVersions(item.id);
+      setModpackVersions(versions);
+      // Auto-fill the URL with the latest version's download URL
+      if (versions.length > 0 && versions[0].downloadUrl) {
+        setModpackUrl(versions[0].downloadUrl);
+      }
+    } catch {
+      setModpackVersions([]);
+    } finally {
+      setModpackLoadingVersions(false);
+    }
+  };
+
+  const handleSelectModpackVersion = (version: ModpackVersionEntry) => {
+    if (version.downloadUrl) {
+      setModpackUrl(version.downloadUrl);
+    }
+  };
+
+  const handleImportModpack = async () => {
+    if (!modpackUrl.trim()) return;
+    setCreating(true);
+    setError(null);
+    setDownloadProgress(null);
+    setModpackResult(null);
+    try {
+      setDownloadProgress({
+        taskId: 'modpack:pending',
+        percent: 0,
+        downloaded: 0,
+        total: 0,
+        phase: 'download',
+        status: 'starting',
+      });
+      const result = await importModpack(modpackUrl.trim()) as ModpackImportResult;
+      setModpackResult(result);
+      setDownloadProgress(null);
+      setCreating(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('setup.createFailed'));
+      setDownloadProgress(null);
+      setCreating(false);
     }
   };
 
@@ -271,6 +420,238 @@ export default function Setup() {
             </span>
           </div>
 
+          {/* Modpack import form */}
+          {serverType === ('modpack' as ServerType) && (
+            <div>
+              {/* Market Browser */}
+              {!modpackSelected && !modpackResult && (
+                <div className="mb-6 p-4 rounded-lg bg-app-surface border border-app-border">
+                  <h3 className="text-sm font-semibold text-app-text mb-3 flex items-center gap-2">
+                    <Search className="w-4 h-4" />
+                    {t('setup.modpackMarket') || '模组包市场'}
+                  </h3>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={modpackSearchQuery}
+                      onChange={(e) => setModpackSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleModpackSearch()}
+                      placeholder={t('setup.modpackSearchPlaceholder') || '搜索模组包...'}
+                      className="flex-1 px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus outline-none text-sm text-app-text transition-colors"
+                    />
+                    <button
+                      onClick={handleModpackSearch}
+                      disabled={modpackSearching || modpackSearchQuery.trim().length < 2}
+                      className="px-4 py-2 bg-app-accent hover:bg-app-accent-hover disabled:opacity-50 text-white rounded-md text-sm font-medium transition-colors"
+                    >
+                      {modpackSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {modpackSearchResults.length > 0 && (
+                    <div className="grid gap-2 max-h-64 overflow-y-auto">
+                      {modpackSearchResults.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => handleSelectModpack(item)}
+                          className="flex items-center gap-3 p-2.5 rounded-md text-left transition-colors bg-app-input hover:bg-app-accent-bg border border-app-border hover:border-app-accent"
+                        >
+                          {item.iconUrl ? (
+                            <img src={item.iconUrl} alt="" className="w-8 h-8 rounded flex-shrink-0" loading="lazy" />
+                          ) : (
+                            <PackageOpen className="w-8 h-8 text-app-text-muted flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-app-text truncate">{item.name}</div>
+                            <div className="text-xs text-app-text-muted truncate">{item.description}</div>
+                            <div className="text-xs text-app-text-muted mt-0.5">
+                              {item.author && <span>{item.author}</span>}
+                              {item.downloads !== undefined && (
+                                <span className="ml-2">{item.downloads.toLocaleString()} ↓</span>
+                              )}
+                              {item.latestVersion && <span className="ml-2">v{item.latestVersion}</span>}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-app-text-muted flex-shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {modpackSearchResults.length === 0 && !modpackSearching && modpackSearchQuery.trim().length >= 2 && (
+                    <p className="text-sm text-app-text-muted text-center py-4">
+                      {t('setup.modpackNoResults') || '未找到模组包，请尝试其他关键词'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Selected modpack detail */}
+              {modpackSelected && !modpackResult && (
+                <div className="mb-6 p-4 rounded-lg bg-app-surface border border-app-accent">
+                  <div className="flex items-center gap-4 mb-4">
+                    {modpackSelected.iconUrl ? (
+                      <img src={modpackSelected.iconUrl} alt="" className="w-12 h-12 rounded-lg flex-shrink-0" />
+                    ) : (
+                      <PackageOpen className="w-12 h-12 text-app-text-muted flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-app-text">{modpackSelected.name}</div>
+                      <div className="text-sm text-app-text-secondary">{modpackSelected.author}</div>
+                      <div className="text-xs text-app-text-muted mt-1">
+                        {modpackSelected.downloads?.toLocaleString()} ↓ · {modpackSelected.likes?.toLocaleString()} ♥
+                      </div>
+                      <a
+                        href={modpackSelected.pageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-app-accent hover:underline mt-1"
+                      >
+                        Modrinth <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <button
+                      onClick={() => { setModpackSelected(null); setModpackVersions([]); }}
+                      className="text-xs text-app-text-muted hover:text-app-text px-2 py-1 rounded"
+                    >
+                      ← {t('setup.back')}
+                    </button>
+                  </div>
+
+                  {modpackLoadingVersions && (
+                    <div className="text-center py-4">
+                      <Loader2 className="w-5 h-5 text-app-accent animate-spin mx-auto mb-2" />
+                      <p className="text-xs text-app-text-muted">{t('setup.modpackLoadingVersions') || '加载版本列表...'}</p>
+                    </div>
+                  )}
+
+                  {!modpackLoadingVersions && modpackVersions.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-app-text-muted mb-2">
+                        {t('setup.modpackSelectVersion') || '选择版本:'}
+                      </p>
+                      <div className="grid gap-1.5 max-h-48 overflow-y-auto">
+                        {modpackVersions.map((v) => (
+                          <button
+                            key={v.id}
+                            onClick={() => handleSelectModpackVersion(v)}
+                            className={`flex items-center justify-between p-2 rounded text-left text-sm transition-colors ${
+                              v.downloadUrl === modpackUrl
+                                ? 'bg-app-accent-bg border border-app-accent'
+                                : 'bg-app-input border border-app-border hover:border-app-accent'
+                            }`}
+                          >
+                            <div>
+                              <span className="font-medium text-app-text">{v.name}</span>
+                              <span className="text-xs text-app-text-muted ml-2">
+                                {v.supportedVersions.slice(0, 3).join(', ')}
+                              </span>
+                            </div>
+                            <div className="text-xs text-app-text-muted">
+                              {v.fileSize !== undefined && `${(v.fileSize / 1024 / 1024).toFixed(1)} MB`}
+                              {v.downloads !== undefined && ` · ${v.downloads.toLocaleString()} ↓`}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* URL input + import */}
+              <p className="text-sm text-app-text-secondary mb-4">
+                {t('setup.modpackHint') || '输入 Modrinth 模组包的 .mrpack 下载链接，系统会自动下载服务端核心和所有依赖 Mod。'}
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-app-text mb-1">
+                    {t('setup.modpackUrl') || '模组包 URL'}
+                  </label>
+                  <input
+                    type="url"
+                    value={modpackUrl}
+                    onChange={(e) => setModpackUrl(e.target.value)}
+                    placeholder="https://cdn.modrinth.com/data/..."
+                    className="w-full px-3 py-2.5 rounded-md bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus outline-none text-sm font-mono text-app-text transition-colors"
+                  />
+                  <p className="text-xs text-app-text-muted mt-1">
+                    {t('setup.modpackUrlHint') || '支持 Modrinth 模组包 (.mrpack) 格式，支持 Fabric/Quilt/Forge/NeoForge'}
+                  </p>
+                </div>
+
+                {error && (
+                  <div className="p-3 rounded-md bg-app-red-bg border border-red-200 dark:border-red-800 text-app-red text-sm">{error}</div>
+                )}
+
+                {dp && creating && (
+                  <div className="p-3 rounded-md bg-app-accent-bg border border-app-accent-border text-app-accent text-sm">
+                    {dp.phase === 'download'
+                      ? `${t('status.downloadProgress') || '下载中'}: ${dp.total ? `${dp.percent?.toFixed(0)}% (${(dp.downloaded / 1024 / 1024).toFixed(1)} / ${(dp.total / 1024 / 1024).toFixed(1)} MB)` : `${(dp.downloaded / 1024 / 1024).toFixed(1)} MB`}`
+                      : dp.phase === 'downloading_mods'
+                      ? `${t('setup.downloadingMods') || '下载 Mod 中'}: ${
+                          dp.taskId?.startsWith('modpack:')
+                            ? `${dp.modpack_done ?? 0}/${dp.modpack_total ?? 0} (${dp.percent?.toFixed(0)}%)${dp.modpack_installed != null ? ' — ' + dp.modpack_installed + ' ' + (t('setup.modSuccess') || '成功') : ''}${(dp.modpack_failed ?? 0) > 0 ? ', ' + dp.modpack_failed + ' ' + (t('setup.modFailed') || '失败') : ''}`
+                            : `${dp.percent?.toFixed(0)}%`
+                        }`
+                      : dp.phase === 'complete'
+                      ? `${t('setup.modpackImportComplete') || '模组包导入完成'}: ${dp.modpack_installed ?? 0} Mod ${t('setup.modSuccess') || '成功'}${(dp.modpack_failed ?? 0) > 0 ? ', ' + dp.modpack_failed + ' ' + (t('setup.modFailed') || '失败') : ''}`
+                      : t('status.creating')}
+                    {dp.status && dp.phase === 'downloading_mods' && (
+                      <div className="text-xs text-app-text-muted mt-1 truncate">{dp.status}</div>
+                    )}
+                  </div>
+                )}
+
+                {modpackResult && !creating && (
+                  <div className="p-4 rounded-lg bg-app-green-bg border border-app-accent-border text-sm">
+                    <div className="font-semibold text-app-green mb-2 flex items-center gap-2">
+                      <Check className="w-4 h-4" />
+                      {t('setup.modpackImported') || '模组包导入成功'}
+                    </div>
+                    <div className="space-y-1 text-app-text-secondary">
+                      <div>{t('setup.serverName') || '名称'}: {modpackResult.modpack.name}</div>
+                      <div>版本: {modpackResult.modpack.version}</div>
+                      <div>类型: {modpackResult.modpack.serverType}</div>
+                      <div>Mod: {modpackResult.modpack.installedMods}/{modpackResult.modpack.totalMods} 安装成功</div>
+                      {modpackResult.modpack.failedMods > 0 && (
+                        <div className="text-app-amber">
+                          失败: {modpackResult.modpack.failedMods} 个
+                          {modpackResult.modpack.failures.slice(0, 3).map((f, i) => (
+                            <div key={i} className="text-xs ml-2">{f}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => navigate('/')}
+                      className="mt-3 px-4 py-2 bg-app-accent hover:bg-app-accent-hover text-white rounded-md text-sm font-medium transition-colors"
+                    >
+                      {t('setup.backToDashboard') || '返回仪表盘'}
+                    </button>
+                  </div>
+                )}
+
+                {!modpackResult && (
+                  <div className="flex gap-3">
+                    <button onClick={() => setStep(1)} className="px-4 py-2.5 bg-app-input hover:bg-app-border text-app-text rounded-md text-sm font-medium transition-colors border border-app-border">
+                      ← {t('setup.back')}
+                    </button>
+                    <button
+                      onClick={handleImportModpack}
+                      disabled={creating || !modpackUrl.trim()}
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-app-accent hover:bg-app-accent-hover disabled:opacity-50 text-white rounded-md text-sm font-semibold transition-colors shadow-sm"
+                    >
+                      {creating ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('status.creating')}</> : <><Download className="w-4 h-4" /> {t('setup.importModpack') || '导入模组包'}</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Non-modpack step 2 content */}
+          {serverType !== ('modpack' as ServerType) && (<>
           {loadingVersions && (
             <div className="text-center py-16">
               <Loader2 className="w-7 h-7 text-app-accent animate-spin mx-auto mb-3" />
@@ -348,6 +729,7 @@ export default function Setup() {
           <button onClick={() => setStep(1)} className="mt-4 text-sm text-app-text-muted hover:text-app-text-secondary transition-colors">
             ← {t('setup.back')}
           </button>
+          </>)}
         </div>
       )}
 
@@ -410,6 +792,35 @@ export default function Setup() {
 
             <div>
               <label className="block text-sm font-medium text-app-text mb-1">{t('setup.javaPath')}</label>
+              <div className="flex gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={handleDetectJava}
+                  disabled={javaDetecting}
+                  className="px-3 py-2 bg-app-input hover:bg-app-border text-app-text rounded-md text-sm border border-app-border transition-colors flex items-center gap-1.5 flex-shrink-0"
+                >
+                  {javaDetecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {t('setup.detectJava') || '检测 Java'}
+                </button>
+                {javaVersions.length > 0 && (
+                  <select
+                    value={javaPath}
+                    onChange={(e) => setJavaPath(e.target.value)}
+                    className="flex-1 min-w-0 px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent outline-none text-sm font-mono text-app-text transition-colors truncate"
+                  >
+                    <option value="">{t('setup.javaPathPlaceholder')}</option>
+                    {javaVersions.map((jv) => {
+                      const compat = selectedVersion ? javaCompatibility(jv.major_version, selectedVersion.id) : 'ok';
+                      const badge = compat === 'ok' ? ' ✓' : compat === 'warn' ? ' ⚠' : ' ✗';
+                      return (
+                        <option key={jv.path} value={jv.path}>
+                          Java {jv.major_version} ({jv.vendor}) — {jv.path}{badge}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </div>
               <input
                 type="text"
                 value={javaPath}
@@ -417,11 +828,49 @@ export default function Setup() {
                 placeholder={t('setup.javaPathPlaceholder')}
                 className="w-full px-3 py-2.5 rounded-md bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus outline-none text-sm font-mono text-app-text transition-colors"
               />
-              <p className="text-xs text-app-text-muted mt-1">{t('setup.javaPathHint')}</p>
+              {javaVersions.length > 0 && selectedVersion && (
+                <p className="text-xs text-app-text-muted mt-1">
+                  {(() => {
+                    const selected = javaVersions.find(jv => jv.path === javaPath);
+                    if (!selected) return t('setup.javaPathHint');
+                    const compat = javaCompatibility(selected.major_version, selectedVersion.id);
+                    if (compat === 'ok') return `✓ Java ${selected.major_version} — ${t('setup.javaCompatible') || '与 Minecraft ' + selectedVersion.id + ' 兼容'}`;
+                    if (compat === 'warn') return `⚠ Java ${selected.major_version} — ${t('setup.javaWarn') || '可能不兼容 Minecraft ' + selectedVersion.id + '，建议升级'}`;
+                    return `✗ Java ${selected.major_version} — ${t('setup.javaBad') || '不兼容 Minecraft ' + selectedVersion.id}`;
+                  })()}
+                </p>
+              )}
+              {javaVersions.length === 0 && (
+                <p className="text-xs text-app-text-muted mt-1">{t('setup.javaPathHint')}</p>
+              )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-app-text mb-1">{t('setup.javaArgs')}</label>
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {JAVA_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => setJavaArgs(preset.args)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                      javaArgs === preset.args
+                        ? 'bg-app-accent text-white border-app-accent'
+                        : 'bg-app-input text-app-text-secondary border-app-border hover:border-app-accent hover:text-app-text'
+                    }`}
+                    title={preset.description}
+                  >
+                    {t(preset.labelKey) || preset.description}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setShowJvmDialog(true)}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium border transition-colors bg-app-input text-app-text-secondary border-app-border hover:border-app-accent hover:text-app-text"
+                >
+                  {t('setup.presetCustom') || '自定义'}
+                </button>
+              </div>
               <input
                 type="text"
                 value={javaArgs}
@@ -470,6 +919,12 @@ export default function Setup() {
           </div>
         </div>
       )}
+      <JvmArgsDialog
+        open={showJvmDialog}
+        initialArgs={javaArgs}
+        onClose={() => setShowJvmDialog(false)}
+        onApply={(args) => { setJavaArgs(args); setShowJvmDialog(false); }}
+      />
     </div>
   );
 }

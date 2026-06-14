@@ -12,6 +12,15 @@ export const configRoutes: FastifyPluginAsync<ConfigRouteOptions> = async (
 ) => {
   const { ipc } = opts;
 
+  app.get('/api/java-versions', async (_request, reply) => {
+    try {
+      const versions = await ipcCall(ipc, 'java.detect', {});
+      return versions ?? [];
+    } catch (error) {
+      return sendRouteError(reply, error, 'Java detection failed');
+    }
+  });
+
   app.get('/api/instances/:id/config', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };

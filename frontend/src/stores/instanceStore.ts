@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Instance, LogEntry, InstanceStats, InstanceState } from '../lib/types';
+import type { Instance, LogEntry, InstanceStats, InstanceState, DownloadProgress } from '../lib/types';
 import * as api from '../lib/api';
 
 interface InstanceStore {
@@ -10,11 +10,11 @@ interface InstanceStore {
   stats: Record<string, InstanceStats | null>;
   loading: boolean;
   error: string | null;
-  downloadProgress: { taskId: string; percent: number; downloaded: number; total: number; phase?: string; status?: string } | null;
+  downloadProgress: DownloadProgress | null;
 
   // Actions
   fetchInstances: () => Promise<void>;
-  setDownloadProgress: (progress: { taskId: string; percent: number; downloaded: number; total: number; phase?: string; status?: string } | null) => void;
+  setDownloadProgress: (progress: DownloadProgress | null) => void;
   createInstance: (name: string, type: string, version: string, port?: number, downloadUrl?: string, javaPath?: string) => Promise<Instance>;
   importInstance: (name: string, sourceDir: string, port?: number, javaArgs?: string, javaPath?: string) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;

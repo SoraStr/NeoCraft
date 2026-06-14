@@ -126,6 +126,10 @@ impl DaemonHandler {
                 let work_dir = self.instance_work_dir(&request.params).await?;
                 crate::instance_files::read_base64(&work_dir, &path).await
             }
+            Method::JavaDetect => {
+                let versions = crate::java_detect::detect_java_versions();
+                Ok(serde_json::to_value(versions).unwrap_or_default())
+            }
             _ => Err(proto_error("NOT_IMPLEMENTED", "Method not yet implemented")),
         }
     }

@@ -85,7 +85,7 @@ const MODRINTH_SITE = 'https://modrinth.com/plugin';
 const USER_AGENT = 'NeoCraft/0.1 (Plugin Market)';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
-const MAX_PLUGIN_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_PLUGIN_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 const INSTALLABLE_HOSTS = new Map<PluginMarketProvider, Set<string>>([
   ['modrinth', new Set(['cdn.modrinth.com'])],
   ['hangar', new Set(['hangarcdn.papermc.io'])],
@@ -295,12 +295,12 @@ export class PluginMarketService {
 
     const length = Number.parseInt(res.headers.get('content-length') || '', 10);
     if (Number.isFinite(length) && length > MAX_PLUGIN_DOWNLOAD_BYTES) {
-      throw new Error('Plugin file is too large (max 50 MB).');
+      throw new Error('Plugin file is too large (max 100 MB).');
     }
 
     const buffer = Buffer.from(await res.arrayBuffer());
     if (buffer.length > MAX_PLUGIN_DOWNLOAD_BYTES) {
-      throw new Error('Plugin file is too large (max 50 MB).');
+      throw new Error('Plugin file is too large (max 100 MB).');
     }
     if (buffer.length === 0) {
       throw new Error('Plugin download was empty.');

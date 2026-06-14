@@ -8,9 +8,9 @@ use serde_json::json;
 
 use crate::protocol::Error as ProtoError;
 
-/// ~50 MB base64 ≈ ~37 MB raw
-const MAX_UPLOAD_B64_LEN: usize = 70_000_000;
-const MAX_READ_SIZE: u64 = 50 * 1024 * 1024;
+/// ~240 MB base64 ≈ ~320 MB encoded
+const MAX_UPLOAD_B64_LEN: usize = 330_000_000;
+const MAX_READ_SIZE: u64 = 240 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct FileEntry {
@@ -184,7 +184,7 @@ pub async fn write_base64(
     data_b64: &str,
 ) -> Result<serde_json::Value, ProtoError> {
     if data_b64.len() > MAX_UPLOAD_B64_LEN {
-        return Err(proto_error("TOO_LARGE", "File too large (max 50 MB)"));
+        return Err(proto_error("TOO_LARGE", "File too large (max 240 MB)"));
     }
 
     let full_path = safe_instance_path(work_dir, subpath)?;
@@ -247,7 +247,7 @@ pub async fn read_base64(work_dir: &Path, subpath: &str) -> Result<serde_json::V
     })?;
 
     if metadata.len() > MAX_READ_SIZE {
-        return Err(proto_error("TOO_LARGE", "File too large (max 50 MB)"));
+        return Err(proto_error("TOO_LARGE", "File too large (max 240 MB)"));
     }
 
     let data = tokio::fs::read(&full_path).await.map_err(|error| {
@@ -259,7 +259,7 @@ pub async fn read_base64(work_dir: &Path, subpath: &str) -> Result<serde_json::V
     })?;
 
     if data.len() as u64 > MAX_READ_SIZE {
-        return Err(proto_error("TOO_LARGE", "File too large (max 50 MB)"));
+        return Err(proto_error("TOO_LARGE", "File too large (max 240 MB)"));
     }
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(&data);

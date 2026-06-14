@@ -2,12 +2,17 @@ import type {
   CreateInstanceInput,
   FabricVersionMeta,
   Instance,
+  JavaInstallation,
+  PortCheckResult,
   ModInstallResult,
   ModMarketDetails,
   ModMarketLoader,
   ModMarketProvider,
   ModMarketResult,
   ModMarketVersion,
+  ModpackDetails,
+  ModpackSearchResult,
+  ModpackVersionEntry,
   PluginInstallResult,
   PluginMarketDetails,
   PluginMarketProvider,
@@ -164,6 +169,10 @@ function withQuery(path: string, params: Record<string, string | undefined>): st
   return suffix ? `${path}?${suffix}` : path;
 }
 
+export async function getJavaVersions(): Promise<JavaInstallation[]> {
+  return request<JavaInstallation[]>('/java-versions', { timeoutMs: 15000 });
+}
+
 export async function checkHealth(): Promise<{ status: string; daemon_connected: boolean }> {
   return request<{ status: string; daemon_connected: boolean }>('/health');
 }
@@ -198,8 +207,49 @@ export async function importInstance(input: {
   });
 }
 
+export async function importModpack(url: string): Promise<Instance> {
+  return request<Instance>('/instances/import-modpack', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+    timeoutMs: 1800000,
+  });
+}
+
+export async function searchModpackMarket(
+  query: string,
+  limit = 20,
+): Promise<ModpackSearchResult[]> {
+  return request<ModpackSearchResult[]>(
+    withQuery('/modpack-market/search', { q: query, limit: String(limit) }),
+    { timeoutMs: 20000 },
+  );
+}
+
+export async function getModpackMarketDetails(projectId: string): Promise<ModpackDetails> {
+  return request<ModpackDetails>(
+    `/modpack-market/projects/${encodeURIComponent(projectId)}`,
+    { timeoutMs: 20000 },
+  );
+}
+
+export async function getModpackMarketVersions(
+  projectId: string,
+  limit = 20,
+): Promise<ModpackVersionEntry[]> {
+  return request<ModpackVersionEntry[]>(
+    withQuery(`/modpack-market/projects/${encodeURIComponent(projectId)}/versions`, {
+      limit: String(limit),
+    }),
+    { timeoutMs: 20000 },
+  );
+}
+
 export async function deleteInstance(id: string): Promise<void> {
   return request<void>(`/instances/${id}`, { method: 'DELETE' });
+}
+
+export async function checkInstancePort(id: string): Promise<PortCheckResult> {
+  return request<PortCheckResult>(`/instances/${id}/check-port`, { method: 'POST' });
 }
 
 export async function startInstance(id: string): Promise<void> {

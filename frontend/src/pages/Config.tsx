@@ -11,13 +11,29 @@ import {
   Wand2,
   AlertTriangle,
   Loader2,
+  Search,
   Settings,
 } from 'lucide-react';
 import { useInstanceStore } from '../stores/instanceStore';
 import { MotdGeneratorDialog } from '../components/config/MotdGeneratorDialog';
+import { JvmArgsDialog } from '../components/config/JvmArgsDialog';
 import { ModsTab } from '../components/management/ModsTab';
 import { extractMinecraftVersion } from '../lib/version';
+import type { JavaInstallation } from '../lib/types';
 import * as api from '../lib/api';
+
+interface JavaPreset {
+  key: string;
+  labelKey: string;
+  description: string;
+  args: string;
+}
+
+const JAVA_PRESETS: JavaPreset[] = [
+  { key: 'low', labelKey: 'setup.presetLow', description: '2G/2人', args: '-Xmx2G -Xms1G -XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20' },
+  { key: 'medium', labelKey: 'setup.presetMedium', description: '4G/10人', args: '-Xmx4G -Xms2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled' },
+  { key: 'high', labelKey: 'setup.presetHigh', description: '8G/50人', args: '-Xmx8G -Xms4G -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90' },
+];
 
 const LABELS_ZH: Record<string, string> = {
   'server-port': '服务器端口',
@@ -121,6 +137,32 @@ export default function Config() {
   const [newValue, setNewValue] = useState('');
   const [activeTab, setActiveTab] = useState<'properties' | 'mods'>('properties');
   const [showMotdGenerator, setShowMotdGenerator] = useState(false);
+  const [javaVersions, setJavaVersions] = useState<JavaInstallation[]>([]);
+  const [javaDetecting, setJavaDetecting] = useState(false);
+  const [showJvmDialog, setShowJvmDialog] = useState(false);
+
+  const handleDetectJava = async () => {
+    setJavaDetecting(true);
+    try {
+      const versions = await api.getJavaVersions();
+      setJavaVersions(versions);
+    } catch {
+      setJavaVersions([]);
+    } finally {
+      setJavaDetecting(false);
+    }
+  };
+
+  const getJavaCompat = (major: number) => {
+    const mcVersion = extractMinecraftVersion(instance?.version || '');
+    if (!mcVersion) return 'ok';
+    const parts = mcVersion.split('.').map(Number);
+    const mcMinor = parts[1] || 0;
+    if (mcMinor >= 21) return major >= 21 ? 'ok' : major >= 17 ? 'warn' : 'bad';
+    if (mcMinor >= 18) return major >= 17 ? 'ok' : major >= 11 ? 'warn' : 'bad';
+    if (mcMinor >= 17) return major >= 17 ? 'ok' : major >= 16 ? 'warn' : 'bad';
+    return major >= 8 ? 'ok' : 'bad';
+  };
 
   const instance = instances.find((i) => i.id === id);
 
@@ -240,13 +282,75 @@ export default function Config() {
                 {!removed.has('java_args') && (
                   <div className="p-4 rounded-lg bg-app-surface border border-app-border">
                     <label className="block text-sm font-semibold text-app-text mb-1.5">{t('config.javaArgs')}</label>
+                    <div className="flex gap-2 mb-2 flex-wrap">
+                      {JAVA_PRESETS.map((preset) => (
+                        <button
+                          key={preset.key}
+                          type="button"
+                          onClick={() => handleChange('java_args', preset.args)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                            (merged['java_args'] ?? '') === preset.args
+                              ? 'bg-app-accent text-white border-app-accent'
+                              : 'bg-app-input text-app-text-secondary border-app-border hover:border-app-accent hover:text-app-text'
+                          }`}
+                          title={preset.description}
+                        >
+                          {t(preset.labelKey) || preset.description}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setShowJvmDialog(true)}
+                        className="px-3 py-1.5 rounded-md text-xs font-medium border transition-colors bg-app-input text-app-text-secondary border-app-border hover:border-app-accent hover:text-app-text"
+                      >
+                        {t('setup.presetCustom') || '自定义'}
+                      </button>
+                    </div>
                     <input type="text" value={merged['java_args'] ?? ''} onChange={(e) => handleChange('java_args', e.target.value)} placeholder="-Xmx2G -Xms1G" className="w-full px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm font-mono outline-none transition-colors" spellCheck={false} />
                   </div>
                 )}
                 {!removed.has('java_path') && (
                   <div className="p-4 rounded-lg bg-app-surface border border-app-border">
                     <label className="block text-sm font-semibold text-app-text mb-1.5">{t('config.javaPath')}</label>
+                    <div className="flex gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={handleDetectJava}
+                        disabled={javaDetecting}
+                        className="px-3 py-2 bg-app-input hover:bg-app-border text-app-text rounded-md text-sm border border-app-border transition-colors flex items-center gap-1.5 flex-shrink-0"
+                      >
+                        {javaDetecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        {t('setup.detectJava') || '检测 Java'}
+                      </button>
+                      {javaVersions.length > 0 && (
+                        <select
+                          value={merged['java_path'] ?? ''}
+                          onChange={(e) => handleChange('java_path', e.target.value)}
+                          className="flex-1 min-w-0 px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent outline-none text-sm font-mono text-app-text transition-colors truncate"
+                        >
+                          <option value="java">java (默认)</option>
+                          {javaVersions.map((jv) => {
+                            const compat = getJavaCompat(jv.major_version);
+                            const badge = compat === 'ok' ? ' ✓' : compat === 'warn' ? ' ⚠' : ' ✗';
+                            return (
+                              <option key={jv.path} value={jv.path}>
+                                Java {jv.major_version} ({jv.vendor}) — {jv.path}{badge}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
+                    </div>
                     <input type="text" value={merged['java_path'] ?? ''} onChange={(e) => handleChange('java_path', e.target.value)} placeholder="java" className="w-full px-3 py-2 rounded-md bg-app-input border border-app-border focus:border-app-accent focus:bg-app-input-focus text-sm font-mono outline-none transition-colors" spellCheck={false} />
+                    {javaVersions.length > 0 && (() => {
+                      const selected = javaVersions.find(jv => jv.path === (merged['java_path'] ?? ''));
+                      if (!selected) return null;
+                      const compat = getJavaCompat(selected.major_version);
+                      const mcVersion = extractMinecraftVersion(instance?.version || '');
+                      if (compat === 'ok') return <p className="text-xs text-app-green mt-1">✓ Java {selected.major_version} — 与 Minecraft {mcVersion} 兼容</p>;
+                      if (compat === 'warn') return <p className="text-xs text-app-amber mt-1">⚠ Java {selected.major_version} — 可能不兼容 Minecraft {mcVersion}，建议升级</p>;
+                      return <p className="text-xs text-app-red mt-1">✗ Java {selected.major_version} — 不兼容 Minecraft {mcVersion}</p>;
+                    })()}
                   </div>
                 )}
               </div>
@@ -326,6 +430,12 @@ export default function Config() {
       )}
 
       <MotdGeneratorDialog open={showMotdGenerator} initialValue={merged.motd ?? ''} onApply={handleApplyMotd} onClose={() => setShowMotdGenerator(false)} />
+      <JvmArgsDialog
+        open={showJvmDialog}
+        initialArgs={merged['java_args'] ?? ''}
+        onClose={() => setShowJvmDialog(false)}
+        onApply={(args) => { handleChange('java_args', args); setShowJvmDialog(false); }}
+      />
     </div>
   );
 }

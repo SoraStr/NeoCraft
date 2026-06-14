@@ -19,7 +19,9 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { LoadingSkeleton } from '../components/ui/LoadingSkeleton';
-import type { ServerType } from '../lib/types';
+import { PortConflictDialog } from '../components/dashboard/PortConflictDialog';
+import { checkInstancePort } from '../lib/api';
+import type { ServerType, PortCheckResult } from '../lib/types';
 
 const SELF_DESCRIBING: ServerType[] = ['forge', 'custom', 'fabric'];
 
@@ -66,6 +68,52 @@ export default function Dashboard() {
   const stats = useInstanceStore((s) => s.stats);
 
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [portConflict, setPortConflict] = useState<{ id: string; result: PortCheckResult } | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
+
+  const handleStartWithPortCheck = async (inst: { id: string; port: number }) => {
+    setStartingId(inst.id);
+    try {
+      const result = await checkInstancePort(inst.id);
+      if (!result.available) {
+        setPortConflict({ id: inst.id, result });
+        setStartingId(null);
+        return;
+      }
+      await startInstance(inst.id);
+    } catch {
+      // If check fails, try starting anyway
+      try { await startInstance(inst.id); } catch { /* error shown by store */ }
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  const handleChangePort = () => {
+    if (!portConflict) return;
+    const suggestion = portConflict.result.suggestion;
+    setPortConflict(null);
+    if (suggestion) {
+      navigate(`/config/${portConflict.id}`);
+    }
+  };
+
+  const handleKillProcess = () => {
+    if (!portConflict?.result.processPid) return;
+    // Navigate to config to change port, since we can't kill from browser
+    setPortConflict(null);
+    // We could add a daemon method to kill by PID, but for now just redirect
+    navigate(`/config/${portConflict.id}`);
+  };
+
+  const handleIgnorePort = async () => {
+    if (!portConflict) return;
+    const id = portConflict.id;
+    setPortConflict(null);
+    try {
+      await startInstance(id);
+    } catch { /* error shown by store */ }
+  };
 
 
   if (loading) return <LoadingSkeleton lines={4} />;
@@ -187,7 +235,7 @@ export default function Dashboard() {
                   {selectedId === inst.id && (
                     <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-app-border animate-slide-up">
                       {inst.state === 'stopped' || inst.state === 'crashed' ? (
-                        <button onClick={(e) => { e.stopPropagation(); startInstance(inst.id); }} className="inline-flex items-center gap-1.5 px-4 py-2 bg-app-accent hover:bg-app-accent-hover text-white rounded-md text-sm font-semibold transition-colors shadow-sm">
+                        <button onClick={(e) => { e.stopPropagation(); handleStartWithPortCheck(inst); }} disabled={startingId === inst.id} className="inline-flex items-center gap-1.5 px-4 py-2 bg-app-accent hover:bg-app-accent-hover disabled:opacity-60 text-white rounded-md text-sm font-semibold transition-colors shadow-sm">
                           <Play className="w-3.5 h-3.5" />
                           {t('dashboard.start')}
                         </button>
@@ -241,6 +289,15 @@ export default function Dashboard() {
           })}
         </div>
       )}
+      <PortConflictDialog
+        open={portConflict !== null}
+        result={portConflict?.result ?? null}
+        instanceId={portConflict?.id ?? ''}
+        onClose={() => setPortConflict(null)}
+        onChangePort={handleChangePort}
+        onKillProcess={handleKillProcess}
+        onIgnore={handleIgnorePort}
+      />
     </div>
   );
 }
